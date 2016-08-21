@@ -9,17 +9,17 @@ extern "C" {
 }
 
 template <>
-void gemm<float>(
+void gemm_cpu<float>(
     char opA, char opB, int m, int n, int k, float alpha,
     const float* A, int lda, const float* B, int ldb, float beta,
     float* C, int ldc) {
-  sgemm_(&opA, &opB, &m, &n, &k, &alpha, A, &lda, B, &ldb, &beta, C, &ldc);
+  sgemm_(&opB, &opA, &n, &m, &k, &alpha, B, &ldb, A, &lda, &beta, C, &ldc);
 }
 
 template <>
-void gemm<double>(
+void gemm_cpu<double>(
     char opA, char opB, int m, int n, int k, double alpha,
     const double* A, int lda, const double* B, int ldb, double beta,
     double* C, int ldc) {
-  dgemm_(&opA, &opB, &m, &n, &k, &alpha, A, &lda, B, &ldb, &beta, C, &ldc);
+  dgemm_(&opB, &opA, &n, &m, &k, &alpha, B, &ldb, A, &lda, &beta, C, &ldc);
 }
