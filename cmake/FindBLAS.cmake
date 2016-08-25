@@ -73,16 +73,9 @@
 #=============================================================================
 #
 
-# Early exit if already found
-if( BLAS_FOUND )
-  return()
-endif()
-
-#include( CheckFortranFunctionExists )
 include( CheckFunctionExists )
 include( CheckLibraryExists )
 include( CheckTypeSize )
-#include( CheckFortranTypeSizes )
 
 # Check the language being used
 get_property( _LANGUAGES_ GLOBAL PROPERTY ENABLED_LANGUAGES )
@@ -140,8 +133,8 @@ macro( _BLAS_LOCATE_AND_TEST __BLAS_VENDOR __BLAS_LIBNAMES  __BLAS_FLAGS )
       PATHS ${BLAS_${__BLAS_VENDOR}_LIB_DIRS} ${_BLAS_EXTRA_LIB_DIRS} )
     message( STATUS "FindBLAS: Searching for ${__BLAS_VENDOR} ${__BLAS_LIBNAME} - ${BLAS_${__BLAS_VENDOR}_${__BLAS_LIBNAME}_LIBRARY}" )
     if( NOT BLAS_${__BLAS_VENDOR}_${__BLAS_LIBNAME}_LIBRARY )
-      unset( BLAS_${__BLAS_VENDOR}_LIBRARIES )
-      unset( BLAS_${__BLAS_VENDOR}_${__BLAS_LIBNAME}_LIBRARY CACHE)
+      unset( BLAS_${__BLAS_VENDOR}_LIBRARIES CACHE )
+      unset( BLAS_${__BLAS_VENDOR}_${__BLAS_LIBNAME}_LIBRARY CACHE )
       break()
     endif()
     set( BLAS_${__BLAS_VENDOR}_LIBRARIES
@@ -159,12 +152,11 @@ macro( _BLAS_LOCATE_AND_TEST __BLAS_VENDOR __BLAS_LIBNAMES  __BLAS_FLAGS )
     unset( CMAKE_REQUIRED_LIBRARIES )
 
     if( BLAS_${__BLAS_VENDOR}_DGEMM )
-      set( BLAS_${__BLAS_VENDOR}_FOUND TRUE CACHE BOOL
-	"Whether not the ${__BLAS_VENDOR} library was found and is usable" )
+      set( BLAS_${__BLAS_VENDOR}_FOUND TRUE )
     else()
-      unset( BLAS_${__BLAS_VENDOR}_DGEMM CACHE)
+      unset( BLAS_${__BLAS_VENDOR}_DGEMM )
       foreach( __BLAS_LIBNAME ${__BLAS_LIBNAMES} )
-        unset( BLAS_${__BLAS_VENDOR}_${__BLAS_LIBNAME}_LIBRARY CACHE)
+        unset( BLAS_${__BLAS_VENDOR}_${__BLAS_LIBNAME}_LIBRARY )
       endforeach()
     endif()
   endif()
