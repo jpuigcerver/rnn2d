@@ -50,9 +50,9 @@
    Q -> gates pre-activations and cells (layout: 4 x H x W x N x 6 x D)
 */
 template < typename T, typename FG, typename FI, typename FO >
-void lstm_2d_fwd_cpu(const int H, const int W, const int N, const int K,
+void lstm_2d_fw_cpu(const int H, const int W, const int N, const int K,
                      const int D, const T* I, const int* S, const T* P[4],
-                     T* O, T* Q[4]) {
+                     T* O, T* Q) {
   // Bias, in each direction
   const T* b[4] = {P[0], P[1], P[2], P[3]};
   // Input weights, in each direction
@@ -77,17 +77,20 @@ void lstm_2d_fwd_cpu(const int H, const int W, const int N, const int K,
   for (int i = 0; i < 4 * H * W * N * 5 * D; ++i) {
     const int d   = i % D;
     const int g   = (i / D) % 5;
-    const int xyn = (i / (5 * D)) % (H * W * N);
+    const int n   = (i / (5 * D)) % N;
+    const int x   = (i / (N * 5 * D)) % W;
+    const int y   = (i / (W * N * 5 * D)) % H;
     const int k   = i / (H * W * N * 5 * D);
-    Q[k][xyn * 6 * D + g * D + d] = b[k][g * D + d];
+    *Q_ptr(k, y, x, n, g, d) = b[k][g * D + d];
   }
 
   // Multiply inputs by weights. Each direction can run in parallel
   for (int k = 0; k < 4; ++k) {
+    T* Qk = Q + k * H * W * N * 6 * D;
     gemm_cpu<T>('N', 'N', H * W * N, 5 * D, K,
                 1.0, I, K,          /* I reshaped as (H * W * N) x K */
                 iW[k], 5 * D,       /* iW reshaped as K x (5 * D) */
-                1.0, Q[k], 6 * D);  /* Q reshaped as (H * W * N) x (6 * D),
+                1.0, Qk, 6 * D);    /* Qk reshaped as (H * W * N) x (6 * D),
                                        notice that only first 5 * D columns are
                                        used. */
   }
@@ -145,7 +148,6 @@ void lstm_2d_fwd_cpu(const int H, const int W, const int N, const int K,
       const int x  = (k == 0 || k == 2) ? j : W - j - 1;
       const int yp = (k == 0 || k == 1) ? y - 1 : y + 1;
       const int xp = (k == 0 || k == 2) ? x - 1 : x + 1;
-      assert(y >= 0 && x >= 0 && y < H && x < W);
       T* C_00 = Q_ptr(k, y, x, n, 5, d);
       T* O_00 = O_ptr(y, x, n, k, d);
       if (y < S[n * 2] && x < S[n * 2 + 1]) {
@@ -166,121 +168,150 @@ void lstm_2d_fwd_cpu(const int H, const int W, const int N, const int K,
   }
 }
 
-/*
-// 2D-LSTM backward pass running on the CPU
-// H -> maximum height
-// W -> maximum width
-// N -> batch size
-// K -> input dimensions/channels
-// D -> output dimensions/channels
-// I -> input data (layout: H x W x N x K)
-// S -> input sizes (height and width of each sample, layout: N x 2)
-// P -> params (layout: [20 * D] (b) + [K x 20 * D] (iW) + [4 * D x 10*D] (rW))
-// O -> output data (layout: H x W x N x 4 x D)
-// Q -> gates and cells activations (layout: H x W x N x 4 x 6 x D)
-template <typename T, typename FI, typename FO>
-void lstm_2d_bkw_cpu(const int H, const int W, const int N, const int K,
-                     const int D, const T* I, const int* S, const T* P,
-                     const T* O, const T* Q, T*, const T* dO, T* dQ,
-                     T* dI, T* dP) {
 
+/* 2D-LSTM forward pass running on the CPU
+   H  -> maximum height
+   W  -> maximum width
+   N  -> batch size
+   K  -> input dimensions/channels
+   D  -> output dimensions/channels
+   I  -> input data (layout: H x W x N x K)
+   S  -> input sizes (height and width of each sample, layout: N x 2)
+   P  -> parameters 4 x (layout: [5 x D] (b) + [K x 5 x D] (iW) +
+                                 [D x 5 x D] (rWy) + [D x 5 x D] (rWx))
+   O  -> output data (layout: H x W x N x 4 x D)
+   Q  -> gates pre-activations and cells (layout: H x W x N x 6 x D)
+   dO -> derivative of the loss w.r.t the output
+   dQ -> derivative of the loss w.r.t the internal states
+   dI -> derivative of the loss w.r.t. the input
+   dP -> derivative of the loss w.r.t. the parameters
+*/
+template <typename T, typename FG, typename FI, typename FO>
+void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
+                     const int D, const T* I, const int* S, const T* P[4],
+                     const T* O, const T* Q, const T* dO,
+                     T* dQ, T* dI, T* dP[4]) {
+  // Bias, in each direction
+  const T* b[4] = {P[0], P[1], P[2], P[3]};
+  // Input weights, in each direction
+  const T* iW[4] = {P[0] + 5 * D, P[1] + 5 * D, P[2] + 5 * D, P[3] + 5 * D};
+  // Recurrent weights for the y-dimension, in each direction
+  const T* rWy[4] = {
+    P[0] + 5 * D + K * 5 * D,
+    P[1] + 5 * D + K * 5 * D,
+    P[2] + 5 * D + K * 5 * D,
+    P[3] + 5 * D + K * 5 * D
+  };
+  // Recurrent weights for the x-dimension, in each direction
+  const T* rWx[4] = {
+    P[0] + 5 * D + K * 5 * D + D * 5 * D,
+    P[1] + 5 * D + K * 5 * D + D * 5 * D,
+    P[2] + 5 * D + K * 5 * D + D * 5 * D,
+    P[3] + 5 * D + K * 5 * D + D * 5 * D
+  };
 
   // Process the image diagonal-wise, in backwards order
   // (there are H + W - 1 diagonals to process)
   for (int z = H + W - 2; z >= 0; --z) {
-    // Number of elements in the z-th diagonal
-    const int Zn = std::min(std::min(H + W - 1 - z, z + 1), std::min(H, W));
-    // (y, x) coordinates of the first element in the z-th diagonals
-    const int zyx[4][2] = DIAGONAL_INITIAL_COORDS_ARRAY(z);
+    // Compute number of elements in the diagonal
+    const int Zmin = std::max(0, z - W + 1);
+    const int Zmax = std::min(z, H - 1);
+    const int Zn   = (Zmax - Zmin) + 1;
 
     // Compute derivatives w.r.t. the cell
-    // dJ/dC(y,x) = dJ/dO(y,x) * g_o(y,x) * f_o'(C(y,x)) +
-    //              dJ/dC(y+1,x) * g_fy(y+1,x) +
-    //              dJ/dC(y,x+1) * g_fx(y,x+1)
+    // dJ/dC(y,x) = dJ/dO(y,x) * FO(g_o(y,x)) * FO'(C(y,x)) +
+    //              dJ/dC(y+1,x) * FG(g_fy(y+1,x)) +
+    //              dJ/dC(y,x+1) * FG(g_fx(y,x+1))
     #pragma omp parallel for
-    for (int i = 0; i < Zn * N * 4 * D; ++i) {
-      const int k = i % D;
-      const int d = (i / D) % 4;
-      const int n = (i / (4 * D)) % N;
-      const int j = (i / (N * 4 * D)) % Zn;
-      const int y = zyx[d][0] + ZDIR[d][0] * j, x = zyx[d][1] + ZDIR[d][1] * j;
-      assert(!(y < 0 || x < 0 || y >= H || x >= W));
-      T* dC_yx = dQ_ptr(y, x, n, d, 5, k);
+    for (int e = 0; e < Zn * N * 4 * D; ++e) {
+      const int d = e % D;
+      const int n = (e / D) % N;
+      const int k = e / (Zn * N * D);
+      // (y, x) coordinates of the e-th element in the z-th diagonal.
+      const int i = ((e / (N * D)) % Zn) + Zmin;
+      const int j = z - i;
+      const int y  = (k == 0 || k == 1) ? i : H - i - 1;
+      const int x  = (k == 0 || k == 2) ? j : W - j - 1;
+      const int yn = (k == 0 || k == 1) ? y + 1 : y - 1;  // next y
+      const int xn = (k == 0 || k == 2) ? x + 1 : x - 1;  // next x
+      T* dC_00 = dQ_ptr(k, y, x, n, 5, d);
       if (y < S[n * 2] && x < S[n * 2 + 1]) {
-        const T C_yx  =  *Q_ptr(y, x, n, d, 5, k);
-        const T dO_yx = *dO_ptr(y, x, n, d, k);
-        const T og  = Sigmoid<T>::f(*Q_ptr(y, x, n, d, 2, k));
-        *dC_yx  = dO_yx * og * FO::df(C_yx);
-        if (y + BNYX[d][0] >= 0 && y + BNYX[d][0] < H - 1) {
-          const T fgy_10 = Sigmoid<T>::f(*Q_ptr(y + BNYX[d][0], x, n, d, 3, k));
-          const T dC_10  = *dQ_ptr(y + BNYX[d][0], x, n, d, 5, k);
-          *dC_yx += dC_10 * fgy_10;
-        }
-        if (x + BNYX[d][1] >= 0 && x + BNYX[d][1] < W - 1) {
-          const T fgx_01 = Sigmoid<T>::f(*Q_ptr(y, x + BNYX[d][1], n, d, 4, k));
-          const T dC_01  = *dQ_ptr(y, x + BNYX[d][1], n, d, 5, k);
-          *dC_yx += dC_01 * fgx_01;
-        }
+        // f(output gate(y,x))
+        const T f_go  = FG::f(*Q_ptr(k, y, x, n, 2, d));
+        // f(forget gate_y(y+1,x)
+        const T f_gfy_10 = (yn >= 0 && yn < H) ?
+            FG::f(*Q_ptr(k, yn, x, n, 3, d)) : 0;
+        // f(forget gate_x(y,x+1)
+        const T f_gfx_01 = (xn >= 0 && xn < W) ?
+            FG::f(*Q_ptr(k, y, xn, n, 4, d)) : 0;
+        // C(y,x)
+        const T C_00  = *Q_ptr(k, y, x, n, 5, d);
+        // dJ/dO(y,x)
+        const T dO_00 = *dO_ptr(y, x, n, k, d);
+        // dJ/dC(y+1,x)
+        const T dC_10 = (yn >= 0 && yn < H) ? *dQ_ptr(k, yn, x, n, 5, d) : 0;
+        // dJ/dC(y,x+1)
+        const T dC_01 = (xn >= 0 && xn < W) ? *dQ_ptr(k, y, xn, n, 5, d) : 0;
+        *dC_00 =
+            dO_00 * f_go * FO::df(C_00) +
+            dC_10 * f_gfy_10 +
+            dC_01 * f_gfx_01;
       } else {
-        *dC_yx = 0;
+        *dC_00 = 0;
       }
     }
   }
 
   // Compute derivatives w.r.t. the block input and the gates
-  // dJ/dA(y,x) = dJ/dC(y,x) * g_i(y,x)
-  // dJ/dGi(y,x) = dJ/dC(y,x) * f_i(a(y,x))
-  // dJ/dGo(y,x) = dJ/dO(y,x) * f_o(c(y,x))
-  #pragma omp parallel for
-  for (int i = 0; i < H * W * N * 4 * D; ++i) {
-    const int k = i % D;
-    const int d = (i / D) % 4;
-    const int n = (i / (4 * D)) % N;
-    const int x = (i / (N * 4 * D)) % W;
-    const int y = (i / (W * N * 4 * D));
-    assert(!(y < 0 || x < 0 || y >= H || x >= W));
-    const T A_yx   = *Q_ptr(y, x, n, d, 0, k);  // a(y,x)
-    const T Gi_yx  = *Q_ptr(y, x, n, d, 1, k);  // g_i(x,y)
-    const T Go_yx  = *Q_ptr(y, x, n, d, 2, k);  // g_o(x,y)
-    const T Gfy_yx = *Q_ptr(y, x, n, d, 3, k);  // g_fy(x,y)
-    const T Gfx_yx = *Q_ptr(y, x, n, d, 4, k);  // g_fx(x,y)
-    const T C_yx   = *Q_ptr(y, x, n, d, 5, k);  // c(y,x)
-    const T C_10 =                              // c(y-1,x)
-        (y + FNYX[d][0] >= 0 && y + FNYX[d][0] < H - 1) ?
-        *Q_ptr(y + FNYX[d][0], x, n, d, 5, k) : 0;
-    const T C_01 =                              // c(y,x-1)
-        (x + FNYX[d][1] >= 0 && x + FNYX[d][1] < W - 1) ?
-        *Q_ptr(y, x + FNYX[d][1], n, d, 5, k) : 0;
-    const T dO_yx = *dO_ptr(y, x, n, d, k);     // dJ/dO(y,x)
-    const T dC_yx = *dQ_ptr(y, x, n, d, 5, k);  // dJ/dC(y,x)
-    *dQ_ptr(y, x, n, d, 0, k) = dC_yx * Sigmoid<T>::f(Gi_yx) * FI::df(A_yx);
-    *dQ_ptr(y, x, n, d, 1, k) = dC_yx * FI::f(A_yx) * Sigmoid<T>::df(Gi_yx);
-    *dQ_ptr(y, x, n, d, 2, k) = dO_yx * FO::f(C_yx) * Sigmoid<T>::df(Go_yx);
-    *dQ_ptr(y, x, n, d, 3, k) = dC_yx * C_10 * Sigmoid<T>::df(Gfy_yx);
-    *dQ_ptr(y, x, n, d, 4, k) = dC_yx * C_01 * Sigmoid<T>::df(Gfx_yx);
+  // dJ/dA(y,x)   = dJ/dC(y,x) * FG(g_i(y,x)) * FI'(a(y,x))
+  // dJ/dGi(y,x)  = dJ/dC(y,x) * FI(a(y,x))   * FG'(g_i(y,x))
+  // dJ/dGo(y,x)  = dJ/dO(y,x) * FO(c(y,x))   * FG'(g_o(y,x))
+  // dJ/dGfy(y,x) = dJ/dC(y,x) * C(y-1,x)     * FG'(g_fy(y,x))
+  // dJ/dGfx(y,x) = dJ/dC(y,x) * C(y,x-1)     * FG'(g_fx(y,x))
+  #pragma omp parallel for schedule(static)
+  for (int i = 0; i < 4 * H * W * N * D; ++i) {
+    const int d = i % D;
+    const int n = (i / D) % N;
+    const int x = (i / (N * D)) % W;
+    const int y = (i / (W * N * D)) % H;
+    const int k = i / (H * W * N * D);
+    const int yp = (k == 0 || k == 1) ? y - 1 : y + 1;  // previous y
+    const int xp = (k == 0 || k == 2) ? x - 1 : x + 1;  // previous x
+    const T dC_00 = *dQ_ptr(k, y, x, n, 5, d);  // dJ/dC(y,x)
+    const T dO_00 = *dO_ptr(y, x, n, k, d);     // dJ/dO(y,x)
+    const T a    = *Q_ptr(k, y, x, n, 0, d);    // a(y,x)
+    const T g_i  = *Q_ptr(k, y, x, n, 1, d);    // g_i(y,x)
+    const T g_o  = *Q_ptr(k, y, x, n, 2, d);    // g_o(y,x)
+    const T g_fy = *Q_ptr(k, y, x, n, 3, d);    // g_fy(y,x)
+    const T g_fx = *Q_ptr(k, y, x, n, 4, d);    // g_fx(y,x)
+    const T C_00 = *Q_ptr(k, y, x, n, 5, d);    // C(y,x)
+    const T C_10 = *Q_ptr(k, yp, x, n, 4, d);   // C(y-1,x)
+    const T C_01 = *Q_ptr(k, y, xp, n, 4, d);   // C(y,x-1)
+    *dQ_ptr(k, y, x, n, 0, d) = dC_00 * FG::f(g_i)  * FI::df(a);
+    *dQ_ptr(k, y, x, n, 1, d) = dC_00 * FI::f(a)    * FG::df(g_i);
+    *dQ_ptr(k, y, x, n, 2, d) = dO_00 * FI::f(C_00) * FG::df(g_o);
+    *dQ_ptr(k, y, x, n, 3, d) = dC_00 * C_10        * FG::df(g_fy);
+    *dQ_ptr(k, y, x, n, 4, d) = dC_00 * C_01        * FG::df(g_fx);
   }
 
-  // Input weights
-  const T* iW[4] = {
-    P + 20 * D,
-    P + 20 * D +  5 * K * D,
-    P + 20 * D + 10 * K * D,
-    P + 20 * D + 15 * K * D
-  };
-  // Compute derivatives w.r.t the layer input (I), across all dimensions
-  // dJ/dI(y,x) = dJ/dA(y,x) * W_a +
-  //              dJ/dGi(y,x) * W_i +
-  //              dJ/dGo(y,x) * W_o +
+  // Compute derivatives w.r.t the layer input (I), across all directions
+  // For each direction:
+  // dJ/dI(y,x) = dJ/dA(y,x)   * W_a +
+  //              dJ/dGi(y,x)  * W_i +
+  //              dJ/dGo(y,x)  * W_o +
   //              dJ/dGfy(y,x) * W_fy +
   //              dJ/dGfx(y,x) * W_fx
-  for (int d = 0; d < 4; ++d) {
-    const T* dQ_d = dQ_ptr(0, 0, 0, d, 0, 0);
+  // The total derivative of the loss w.r.t. the input (I) is the sum across
+  // all directions.
+  for (int k = 0; k < 4; ++k) {
+    const T* dQk = dQ + k * H * W * N * 6 * D;
     gemm_cpu<T>('N', 'T', H * W * N, K, 5 * D,
-                1.0, dQ_d, 4 * 6 * D,
-                iW[d], H * W * N,
-                (d == 0 ? 0 : 1), dI, K);
+                1.0, dQk, 6 * D,      /* dQ reshaped as (H * W * N) x (6 * D),
+                                         but only the first 5 * D columns are
+                                         used */
+                iW[k], K,                 /* iW^T reshaped as (5 * D) x (K) */
+                (k == 0 ? 0 : 1), dI, K); /* dI reshaped as (H * W * N) x K */
   }
 }
 
-*/
 #endif  // RNN2D_SRC_LSTM_CPU_H_

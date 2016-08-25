@@ -12,13 +12,13 @@
 #define dO_ptr(y, x, n, k, d)                                   \
   (dO + ((((y) * W + (x)) * N + (n)) * 4 + (k)) * D + (d))
 #define Q_ptr(k, y, x, n, g, d)                                 \
-  (Q[k]  + ((((y) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
+  (Q  + (((((k) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
 #define dQ_ptr(k, y, x, n, g, d)                                \
-  (dQ[k] + ((((y) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
+  (dQ + (((((k) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
 
 template <typename T>
 void print_Q(const int H, const int W, const int N, const int D,
-             const T* const Q[4]) {
+             const T* Q) {
   for (int k = 0; k < 4; ++k) {
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
