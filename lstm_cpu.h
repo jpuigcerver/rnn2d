@@ -309,7 +309,7 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
                 1.0, dQk, 6 * D,      /* dQ reshaped as (H * W * N) x (6 * D),
                                          but only the first 5 * D columns are
                                          used */
-                iW[k], K,                 /* iW^T reshaped as (5 * D) x (K) */
+                iW[k], 5 * D,         /* iW^T reshaped as (5 * D) x (K) */
                 (k == 0 ? 0 : 1), dI, K); /* dI reshaped as (H * W * N) x K */
   }
 }
