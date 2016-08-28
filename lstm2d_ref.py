@@ -1,9 +1,9 @@
 import numpy as np
-import theano as T
+#import theano as T
 import struct
 
 DTYPE = np.float32
-T.config.floatX = 'float32'
+#T.config.floatX = 'float32'
 
 
 def sigmoid(x):
@@ -107,7 +107,7 @@ def lstm_2d_theano(X, dO, w, ry, rx, b,
     return O, J.eval(), T.grad(J, X).eval(), T.grad(J, b).eval(), \
         T.grad(J, w).eval(), T.grad(J, ry).eval(), T.grad(J, rx).eval()
 
-def lstm_2d(X, w, ry, rx, b, f_g = linear, f_i = linear, f_o = linear):
+def lstm_2d(X, b, w, ry, rx, f_g = linear, f_i = linear, f_o = linear):
     H, W, N, K = X.shape
     D = b.shape[-1]
     assert(b.shape  == (4, 5, D))
@@ -155,7 +155,7 @@ def lstm_2d(X, w, ry, rx, b, f_g = linear, f_i = linear, f_o = linear):
                 O[y,x,:,z,:] = f_o(Q[z,y,x,:,5,:]) * f_g(Q[z,y,x,:,2,:])
     return O, Q
 
-def lstm_2d_bw(X, Q, dO, w, ry, rx, b,
+def lstm_2d_bw(X, Q, dO, b, w, ry, rx,
                f_g = linear, f_i = linear, f_o = linear,
                fp_g = linear, fp_i = linear, fp_o = linear):
     H, W, N, K = X.shape
@@ -164,37 +164,44 @@ def lstm_2d_bw(X, Q, dO, w, ry, rx, b,
     assert(w.shape  == (4, K, 5, D))
     assert(ry.shape == (4, D, 5, D))
     assert(rx.shape == (4, D, 5, D))
-    dX = np.zeros((H, W, N, D), dtype = DTYPE)
+    dX = np.zeros((H, W, N, K), dtype = DTYPE)
     dQ = np.zeros((4, H, W, N, 6, D), dtype = DTYPE)
     for z in xrange(4):
         for i in xrange(H):
             for j in xrange(W):
-                y = i if z == 0 or z == 1 else H - i - 1
-                x = j if z == 0 or z == 2 else W - j - 1
+                y = H - i - 1 if z == 0 or z == 1 else i
+                x = W - j - 1 if z == 0 or z == 2 else j
                 yp = y - 1 if z == 0 or z == 1 else y + 1
                 xp = x - 1 if z == 0 or z == 2 else x + 1
                 yn = y + 1 if z == 0 or z == 1 else y - 1
                 xn = x + 1 if z == 0 or z == 2 else x - 1
+                ## dJ/dC(y,x)
                 dQ[z,y,x,:,5,:] = \
                     dO[y,x,:,z,:] * f_g(Q[z,y,x,:,2,:]) * fp_o(Q[z,y,x,:,5,:])
                 if yn >= 0 and yn < H:
-                    pass
+                    dQ[z,y,x,:,5,:] += dQ[z,yn,x,:,5,:] * f_g(Q[z,yn,x,:,3,:])
                 if xn >= 0 and xn < W:
-                    pass
-
-
-                if xp >= 0 and xp < W:
-                    dQ[z,y,x,:,4,:] = \
-                        dQ[z,y,x,:,5,:] * Q[z,y,xp,:,5,:] * fp_g(Q[z,y,x,:,4,:])
-                if yp >= 0 and yp < H:
-                    dQ[z,y,x,:,3,:] = \
-                        dQ[z,y,x,:,5,:] * Q[z,yp,x,:,5,:] * fp_g(Q[z,y,x,:,3,:])
+                    dQ[z,y,x,:,5,:] += dQ[z,y,xn,:,5,:] * f_g(Q[z,y,xn,:,4,:])
+                ## dJ/dgfx(y,x)
+                dQ[z,y,x,:,4,:] = \
+                    dQ[z,y,x,:,5,:] * Q[z,y,xp,:,5,:] * fp_g(Q[z,y,x,:,4,:]) \
+                    if xp >= 0 and xp < W else 0
+                ## dJ/dgfy(y,x)
+                dQ[z,y,x,:,3,:] = \
+                    dQ[z,y,x,:,5,:] * Q[z,yp,x,:,5,:] * fp_g(Q[z,y,x,:,3,:]) \
+                    if yp >= 0 and yp < H else 0
+                ## dJ/dgo(y,x)
                 dQ[z,y,x,:,2,:] = \
-                    dO[y,x,:,z,:] * f_o(Q[z,yp,x,:,5,:]) * fp_g(Q[z,y,x,:,2,:])
+                    dO[y,x,:,z,:]   * f_o(Q[z,y,x,:,5,:]) * fp_g(Q[z,y,x,:,2,:])
+                ## dJ/dgi(y,x)
                 dQ[z,y,x,:,1,:] = \
-                    dO[y,x,:,z,:] * f_i(Q[z,yp,x,:,0,:]) * fp_g(Q[z,y,x,:,1,:])
-
-
+                    dQ[z,y,x,:,5,:] * f_i(Q[z,y,x,:,0,:]) * fp_g(Q[z,y,x,:,1,:])
+                ## dJ/dX(y,x)
+                dX[y,x,:,:] += np.dot(dQ[z,y,x,:,0,:], w[z,:,0,:].transpose())
+                dX[y,x,:,:] += np.dot(dQ[z,y,x,:,1,:], w[z,:,1,:].transpose())
+                dX[y,x,:,:] += np.dot(dQ[z,y,x,:,2,:], w[z,:,2,:].transpose())
+                dX[y,x,:,:] += np.dot(dQ[z,y,x,:,3,:], w[z,:,3,:].transpose())
+                dX[y,x,:,:] += np.dot(dQ[z,y,x,:,4,:], w[z,:,4,:].transpose())
     return dX
 
 if __name__ == '__main__':
@@ -338,6 +345,10 @@ if __name__ == '__main__':
            [-0.93,  0.09]]]]
     ])
 
+    O, Q = lstm_2d(X, b, w, ry, rx)
+    dX = lstm_2d_bw(X, Q, dO, b, w, ry, rx)
+
+    '''
     O, J, dX, db, dw, dry, drx = lstm_2d_theano(X, dO, w, ry, rx, b)
 
     print 'J =', J
@@ -349,6 +360,7 @@ if __name__ == '__main__':
                     for d in xrange(D):
                         print ('%s,' % float_to_hex(O[y, x, n, z, d])),
                 print ''
+    '''
     print 'dJ/dX ='
     for y in xrange(H):
         for x in xrange(W):
@@ -356,6 +368,7 @@ if __name__ == '__main__':
                 for k in xrange(K):
                     print ('%-.4f,' % dX[y, x, n, k]),
                 print ''
+    '''
     print 'dJ/db ='
     for z in xrange(4):
         for g in xrange(5):
@@ -383,3 +396,4 @@ if __name__ == '__main__':
                 for d2 in xrange(D):
                     print ('%-.4f,' % drx[z, d1, g, d2]),
                 print ''
+    '''
