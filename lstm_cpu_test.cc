@@ -195,7 +195,7 @@ T compute_J(const int H, const int W, const int N, const int D,
   for (int y = 0; y < H; ++y)
     for (int x = 0; x < W; ++x)
       for (int n = 0; n < N; ++n)
-        for (int d = 0; d < D; ++d) {
+        for (int d = 0; d < 4 * D; ++d) {
           const int i = y * W * N * D + x * N * D + n * D + d;
           J += O[i] * dO[i];
         }
@@ -222,35 +222,41 @@ void test_backward(const T eps, const T tol) {
     dP.data() + 3 * (5 * D + K * 5 * D + D * 5 * D + D * 5 * D),
   };
 
+  std::vector<T> vI = I<T>();
+
   // Forward pass
   lstm_2d_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
-      H, W, N, K, D, I<T>().data(), S, Pd, O.data(), Q.data());
+      H, W, N, K, D, vI.data(), S, Pd, O.data(), Q.data());
 
   // Backward pass
   lstm_2d_bw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
-      H, W, N, K, D, I<T>().data(), S, Pd, O.data(), Q.data(),
+      H, W, N, K, D, vI.data(), S, Pd, O.data(), Q.data(),
       dO<T>().data(), dQ.data(), dI.data(), dPd);
 
-  print_I(H, W, N, K, dI.data());
-  /*
+  //print_I(H, W, N, K, dI.data());
+
   for (int y = 0; y < H; ++y)
     for (int x = 0; x < W; ++x)
       for (int n = 0; n < N; ++n)
         for (int k = 0; k < K; ++k) {
           const int i = y * W * N * K + x * N * K + n * K + k;
-          I[i] -= eps;
+          vI[i] -= eps;
+          memset(Q.data(), 0x00, Q.size() * sizeof(T));
+          memset(O.data(), 0x00, O.size() * sizeof(T));
           lstm_2d_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
-              H, W, N, K, D, I.data(), S, Pd, O.data(), Q.data());
-          const T J0 = compute_J(H, W, N, D, O.data(), dO.data());
-          I[i] += eps;
+              H, W, N, K, D, vI.data(), S, Pd, O.data(), Q.data());
+          const T J0 = compute_J(H, W, N, D, O.data(), dO<T>().data());
+          vI[i] += 2 * eps;
           lstm_2d_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
-              H, W, N, K, D, I.data(), S, Pd, O.data(), Q.data());
-          const T J1 = compute_J(H, W, N, D, O.data(), dO.data());
+              H, W, N, K, D, vI.data(), S, Pd, O.data(), Q.data());
+          const T J1 = compute_J(H, W, N, D, O.data(), dO<T>().data());
           const T expected_dI = (J1 - J0) / (2 * eps);
           std::cerr << dI[i] << " " << expected_dI << std::endl;
-          EXPECT_TRUE(FloatRelativeEq<T>(dI[i], expected_dI, tol))
-              << "dI() = " << dI[i] << " vs. E_dI() = " << expected_dI;
-        }*/
+          //EXPECT_TRUE(FloatRelativeEq<T>(dI[i], expected_dI, tol))
+          //<< "dI() = " << dI[i] << " vs. E_dI() = " << expected_dI;
+
+
+        }
 }
 
 TEST(lstm_cpu_test, forward) {
@@ -259,6 +265,6 @@ TEST(lstm_cpu_test, forward) {
 }
 
 TEST(lstm_cpu_test, backward) {
-  test_backward<float>(0.0001, 1E-6);
+  test_backward<double>(0.0001, 1E-6);
   //test_backward<double>(DoubleEq);
 }

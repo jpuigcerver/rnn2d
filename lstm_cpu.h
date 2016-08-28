@@ -305,16 +305,16 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
   //              dJ/dGfx(y,x) * W_fx
   // The total derivative of the loss w.r.t. the input (I) is the sum across
   // all directions.
-  //  for (int k = 0; k < 4; ++k) {
-  //    const T* dQk = dQ + k * H * W * N * 6 * D;
-  //    gemm_cpu<T>('N', 'T', H * W * N, K, 5 * D,
-  //                1.0, dQk, 6 * D,      /* dQ reshaped as (H * W * N) x (6 * D),
-  //                                         but only the first 5 * D columns are
-  //                                         used */
-  //                iW[k], 5 * D,         /* iW^T reshaped as (5 * D) x (K) */
-  //              (k == 0 ? 0 : 1), dI, K); /* dI reshaped as (H * W * N) x K */
-  //}
-  #pragma omp parallel for collapse(4)
+  for (int k = 0; k < 4; ++k) {
+    const T* dQk = dQ + k * H * W * N * 6 * D;
+    gemm_cpu<T>('N', 'T', H * W * N, K, 5 * D,
+                1.0, dQk, 6 * D,      /* dQ reshaped as (H * W * N) x (6 * D),
+                                         but only the first 5 * D columns are
+                                         used */
+                iW[k], 5 * D,         /* iW^T reshaped as (5 * D) x (K) */
+                (k == 0 ? 0 : 1), dI, K); /* dI reshaped as (H * W * N) x K */
+  }
+  /*#pragma omp parallel for collapse(4)
   for (int y = 0; y < H; ++y) {
     for (int x = 0; x < W; ++x) {
       for (int n = 0; n < N; ++n) {
@@ -333,7 +333,7 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
         }
       }
     }
-  }
+    }*/
 }
 
 #endif  // RNN2D_SRC_LSTM_CPU_H_
