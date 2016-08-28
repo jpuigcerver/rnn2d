@@ -38,6 +38,22 @@ void print_Q(const int H, const int W, const int N, const int D,
 }
 
 template <typename T>
+void print_I(const int H, const int W, const int N, const int K, const T* I) {
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      for (int n = 0; n < N; ++n) {
+        fprintf(stderr, "I(y=%d,x=%d,n=%d) =", y, x, n);
+        for (int k = 0; k < K; ++k) {
+          fprintf(stderr, " %.20g", *I_ptr(y, x, n, k));
+        }
+        fprintf(stderr, "\n");
+      }
+      fprintf(stderr, "\n");
+    }
+  }
+}
+
+template <typename T>
 void print_O(const int H, const int W, const int N, const int D, const T* O) {
   for (int y = 0; y < H; ++y) {
     for (int x = 0; x < W; ++x) {

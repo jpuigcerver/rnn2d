@@ -223,7 +223,7 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
     //              dJ/dC(y+1,x) * FG(g_fy(y+1,x)) +
     //              dJ/dC(y,x+1) * FG(g_fx(y,x+1))
     #pragma omp parallel for
-    for (int e = 0; e < Zn * N * 4 * D; ++e) {
+    for (int e = 0; e < 4 * Zn * N * D; ++e) {
       const int d = e % D;
       const int n = (e / D) % N;
       const int k = e / (Zn * N * D);
@@ -238,10 +238,10 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
       if (y < S[n * 2] && x < S[n * 2 + 1]) {
         // f(output gate(y,x))
         const T f_go  = FG::f(*Q_ptr(k, y, x, n, 2, d));
-        // f(forget gate_y(y+1,x)
+        // f(forget gate_y(y+1,x))
         const T f_gfy_10 = (yn >= 0 && yn < H) ?
             FG::f(*Q_ptr(k, yn, x, n, 3, d)) : 0;
-        // f(forget gate_x(y,x+1)
+        // f(forget gate_x(y,x+1))
         const T f_gfx_01 = (xn >= 0 && xn < W) ?
             FG::f(*Q_ptr(k, y, xn, n, 4, d)) : 0;
         // C(y,x)
@@ -285,8 +285,10 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
     const T g_fy = *Q_ptr(k, y, x, n, 3, d);    // g_fy(y,x)
     const T g_fx = *Q_ptr(k, y, x, n, 4, d);    // g_fx(y,x)
     const T C_00 = *Q_ptr(k, y, x, n, 5, d);    // C(y,x)
-    const T C_10 = *Q_ptr(k, yp, x, n, 4, d);   // C(y-1,x)
-    const T C_01 = *Q_ptr(k, y, xp, n, 4, d);   // C(y,x-1)
+    // C(y-1,x)
+    const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(k, yp, x, n, 5, d) : 0;
+    // C(y,x-1)
+    const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(k, y, xp, n, 5, d) : 0;
     *dQ_ptr(k, y, x, n, 0, d) = dC_00 * FG::f(g_i)  * FI::df(a);
     *dQ_ptr(k, y, x, n, 1, d) = dC_00 * FI::f(a)    * FG::df(g_i);
     *dQ_ptr(k, y, x, n, 2, d) = dO_00 * FI::f(C_00) * FG::df(g_o);
@@ -303,14 +305,34 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
   //              dJ/dGfx(y,x) * W_fx
   // The total derivative of the loss w.r.t. the input (I) is the sum across
   // all directions.
-  for (int k = 0; k < 4; ++k) {
-    const T* dQk = dQ + k * H * W * N * 6 * D;
-    gemm_cpu<T>('N', 'T', H * W * N, K, 5 * D,
-                1.0, dQk, 6 * D,      /* dQ reshaped as (H * W * N) x (6 * D),
-                                         but only the first 5 * D columns are
-                                         used */
-                iW[k], 5 * D,         /* iW^T reshaped as (5 * D) x (K) */
-                (k == 0 ? 0 : 1), dI, K); /* dI reshaped as (H * W * N) x K */
+  //  for (int k = 0; k < 4; ++k) {
+  //    const T* dQk = dQ + k * H * W * N * 6 * D;
+  //    gemm_cpu<T>('N', 'T', H * W * N, K, 5 * D,
+  //                1.0, dQk, 6 * D,      /* dQ reshaped as (H * W * N) x (6 * D),
+  //                                         but only the first 5 * D columns are
+  //                                         used */
+  //                iW[k], 5 * D,         /* iW^T reshaped as (5 * D) x (K) */
+  //              (k == 0 ? 0 : 1), dI, K); /* dI reshaped as (H * W * N) x K */
+  //}
+  #pragma omp parallel for collapse(4)
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      for (int n = 0; n < N; ++n) {
+        for (int k = 0; k < K; ++k) {
+          T* di_yxnk = dI_ptr(y, x, n, k);
+          *di_yxnk = 0.0;
+          for (int z = 0; z < 4; ++z) {
+            for (int g = 0; g < 5; ++g) {
+              for (int d = 0; d < D; ++d){
+                const T w  = iW[z][k * D * 5 + g * D + d];
+                const T dq = *dQ_ptr(k, y, x, n, g, d);
+                *di_yxnk += dq * w;
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
 

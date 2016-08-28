@@ -230,6 +230,8 @@ void test_backward(const T eps, const T tol) {
   lstm_2d_bw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, I<T>().data(), S, Pd, O.data(), Q.data(),
       dO<T>().data(), dQ.data(), dI.data(), dPd);
+
+  print_I(H, W, N, K, dI.data());
   /*
   for (int y = 0; y < H; ++y)
     for (int x = 0; x < W; ++x)
