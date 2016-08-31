@@ -11,29 +11,10 @@ static std::default_random_engine RNG = std::default_random_engine();
 
 namespace testing {
 
-template <typename T>
-bool FloatRelativeEq(const T r, const T a, const T t) {
-  const T d = std::fabs(r - a);
-  const T R = std::fabs(r);
-  const T A = std::fabs(a);
-  const T Min = std::min(A, R);
-  const T Max = std::max(A, R);
-  return Min > 0.0 ? (d <= Max * t) : (d <= t);
-}
-
-MATCHER_P(FloatRelativeEqPointwise, tol, "") {
-  return FloatRelativeEq<float>(std::get<1>(arg), std::get<0>(arg),
-                                tol);
-}
-
-MATCHER_P(DoubleRelativeEqPointwise, tol, "") {
-  return FloatRelativeEq<double>(std::get<1>(arg), std::get<0>(arg),
-                                 tol);
-}
-
 MATCHER(FloatEqPointwise, "") {
   return Matcher<float>(FloatEq(get<1>(arg))).Matches(get<0>(arg));
 }
+
 MATCHER(DoubleEqPointwise, "") {
   return Matcher<double>(DoubleEq(get<1>(arg))).Matches(get<0>(arg));
 }
@@ -41,19 +22,10 @@ MATCHER(DoubleEqPointwise, "") {
 }  // namespace testing
 
 using ::testing::Pointwise;
-using ::testing::FloatRelativeEqPointwise;
-using ::testing::DoubleRelativeEqPointwise;
-using ::testing::FloatRelativeEq;
+using ::testing::FloatEq;
+using ::testing::DoubleEq;
 using ::testing::FloatEqPointwise;
 using ::testing::DoubleEqPointwise;
-
-template <typename T>
-void init_uniform(T * x, int n, T a, T b) {
-  std::uniform_real_distribution<T> u(a, b);
-  for (int i = 0; i < n; ++i) {
-    x[i] = u(RNG);
-  }
-}
 
 static const int H = 2, W = 3, N = 2, K = 3, D = 2;
 static const int S[N * 2] = {2, 3, 2, 3};
@@ -91,15 +63,18 @@ const std::vector<T>& P() {
 template <typename T>
 const std::vector<T>& dO() {
   static const std::vector<T> dO_{
-    0.51,  0.00,  0.21,  0.47, -0.06,  0.26,  0.50, -0.71,  0.53,  0.65,  0.52,
-    0.25, -0.39, -0.13,  0.05,  0.07,  0.44,  0.66,  0.30,  0.98,  0.20,  0.76,
-   -0.93,  0.42,  0.17,  0.71,  0.16, -0.48,  0.39,  0.92,  0.04,  0.81,  0.07,
-    0.98, -0.17,  0.79,  0.57,  0.39,  0.94,  0.40,  0.81,  0.40,  0.81,  0.34,
-    0.74,  0.49,  0.68,  0.00,  0.29,  0.29,  0.50,  0.52, -0.15, -0.63, -0.87,
-    0.43,  0.39,  0.59, -0.68,  0.92,  0.43, -0.16, -0.27,  0.19, -0.84,  0.13,
-    0.33,  0.89, -0.47,  0.72, -0.47,  0.27,  0.85, -0.23,  0.15, -0.61,  0.69,
-    0.76,  0.47,  0.56,  0.13,  0.61,  0.71,  0.11, -0.44,  0.11,  0.47,  0.04,
-    0.00,  0.78,  0.80,  0.24,  0.40,  0.49, -0.93,  0.09
+    0.51,  0.10,  0.21,  0.47, -0.06,  0.26,  0.50, -0.71,
+    0.53,  0.65,  0.52,  0.25, -0.39, -0.13,  0.05,  0.07,
+    0.44,  0.66,  0.30,  0.98,  0.20,  0.76, -0.93,  0.42,
+    0.17,  0.71,  0.16, -0.48,  0.39,  0.92,  0.04,  0.81,
+    0.07,  0.98, -0.17,  0.79,  0.57,  0.39,  0.94,  0.40,
+    0.81,  0.40,  0.81,  0.34,  0.74,  0.49,  0.68,  0.00,
+    0.29,  0.29,  0.50,  0.52, -0.15, -0.63, -0.87,  0.43,
+    0.39,  0.59, -0.68,  0.92,  0.43, -0.16, -0.27,  0.19,
+   -0.84,  0.13,  0.33,  0.89, -0.47,  0.72, -0.47,  0.27,
+    0.85, -0.23,  0.15, -0.61,  0.69,  0.76,  0.47,  0.56,
+    0.13,  0.61,  0.71,  0.11, -0.44,  0.11,  0.47,  0.04,
+   -0.34,  0.78,  0.80,  0.24,  0.40,  0.49, -0.93,  0.09
   };
   return dO_;
 }
@@ -175,6 +150,36 @@ const std::vector<double>& expected_O() {
   return O;
 }
 
+template <typename T>
+inline T expected_sum_dI();
+
+template <typename T>
+inline T expected_sum_dP();
+
+template <>
+inline float expected_sum_dI<float>() {
+  static const uint32_t H = 0x4193d611;
+  return *reinterpret_cast<const float*>(&H);
+}
+
+template <>
+inline double expected_sum_dI<double>() {
+  static const uint64_t H = 0x40327ac23c1e8713L;
+  return *reinterpret_cast<const double*>(&H);
+}
+
+template <>
+inline float expected_sum_dP<float>() {
+  static const uint32_t H = 0xc270845b;
+  return *reinterpret_cast<const float*>(&H);
+}
+
+template <>
+inline double expected_sum_dP<double>() {
+  static const uint64_t H = 0xc04e108a43a607c6L;
+  return *reinterpret_cast<const double*>(&H);
+}
+
 
 template <typename T, typename M>
 void test_forward(const M& matcher) {
@@ -192,18 +197,13 @@ template <typename T>
 T compute_J(const int H, const int W, const int N, const int D,
                const T* O, const T* dO) {
   T J = 0;
-  for (int y = 0; y < H; ++y)
-    for (int x = 0; x < W; ++x)
-      for (int n = 0; n < N; ++n)
-        for (int d = 0; d < 4 * D; ++d) {
-          const int i = y * W * N * D + x * N * D + n * D + d;
-          J += O[i] * dO[i];
-        }
+  for (int i = 0; i < H * W * N * 4 * D; ++i)
+    J += O[i] * dO[i];
   return J;
 }
 
-template <typename T>
-void test_backward(const T eps, const T tol) {
+template <typename T, typename M>
+void test_backward(M matcher) {
   const T* Pd[] = {P<T>().data(), P<T>().data(), P<T>().data(), P<T>().data()};
   // Allocate space used for the internal states
   std::vector<T> Q(4 * H * W * N * 6 * D);
@@ -233,30 +233,13 @@ void test_backward(const T eps, const T tol) {
       H, W, N, K, D, vI.data(), S, Pd, O.data(), Q.data(),
       dO<T>().data(), dQ.data(), dI.data(), dPd);
 
-  //print_I(H, W, N, K, dI.data());
+  // Check dJ/dI
+  const T sum_dI = std::accumulate(dI.begin(), dI.end(), static_cast<T>(0));
+  EXPECT_THAT(sum_dI, matcher(expected_sum_dI<T>()));
 
-  for (int y = 0; y < H; ++y)
-    for (int x = 0; x < W; ++x)
-      for (int n = 0; n < N; ++n)
-        for (int k = 0; k < K; ++k) {
-          const int i = y * W * N * K + x * N * K + n * K + k;
-          vI[i] -= eps;
-          memset(Q.data(), 0x00, Q.size() * sizeof(T));
-          memset(O.data(), 0x00, O.size() * sizeof(T));
-          lstm_2d_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
-              H, W, N, K, D, vI.data(), S, Pd, O.data(), Q.data());
-          const T J0 = compute_J(H, W, N, D, O.data(), dO<T>().data());
-          vI[i] += 2 * eps;
-          lstm_2d_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
-              H, W, N, K, D, vI.data(), S, Pd, O.data(), Q.data());
-          const T J1 = compute_J(H, W, N, D, O.data(), dO<T>().data());
-          const T expected_dI = (J1 - J0) / (2 * eps);
-          std::cerr << dI[i] << " " << expected_dI << std::endl;
-          //EXPECT_TRUE(FloatRelativeEq<T>(dI[i], expected_dI, tol))
-          //<< "dI() = " << dI[i] << " vs. E_dI() = " << expected_dI;
-
-
-        }
+  // Check dJ/dP
+  const T sum_dP = std::accumulate(dP.begin(), dP.end(), static_cast<T>(0));
+  EXPECT_THAT(sum_dP, matcher(expected_sum_dP<T>()));
 }
 
 TEST(lstm_cpu_test, forward) {
@@ -265,6 +248,6 @@ TEST(lstm_cpu_test, forward) {
 }
 
 TEST(lstm_cpu_test, backward) {
-  test_backward<double>(0.0001, 1E-6);
-  //test_backward<double>(DoubleEq);
+  test_backward<float>(FloatEq);
+  test_backward<double>(DoubleEq);
 }

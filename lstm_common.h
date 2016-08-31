@@ -7,14 +7,14 @@
   (I  + (((y) * W + (x)) * N + (n)) * K + (d))
 #define dI_ptr(y, x, n, d)                      \
   (dI + (((y) * W + (x)) * N + (n)) * K + (d))
-#define O_ptr(y, x, n, k, d)                                    \
-  (O  + ((((y) * W + (x)) * N + (n)) * 4 + (k)) * D + (d))
-#define dO_ptr(y, x, n, k, d)                                   \
-  (dO + ((((y) * W + (x)) * N + (n)) * 4 + (k)) * D + (d))
-#define Q_ptr(k, y, x, n, g, d)                                 \
-  (Q  + (((((k) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
-#define dQ_ptr(k, y, x, n, g, d)                                \
-  (dQ + (((((k) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
+#define O_ptr(y, x, n, z, d)                                    \
+  (O  + ((((y) * W + (x)) * N + (n)) * 4 + (z)) * D + (d))
+#define dO_ptr(y, x, n, z, d)                                   \
+  (dO + ((((y) * W + (x)) * N + (n)) * 4 + (z)) * D + (d))
+#define Q_ptr(z, y, x, n, g, d)                                 \
+  (Q  + (((((z) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
+#define dQ_ptr(z, y, x, n, g, d)                                \
+  (dQ + (((((z) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
 
 template <typename T>
 void print_Q(const int H, const int W, const int N, const int D,
