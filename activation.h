@@ -1,5 +1,5 @@
-#ifndef RNN2D_SRC_ACTIVATION_H_
-#define RNN2D_SRC_ACTIVATION_H_
+#ifndef RNN2D_ACTIVATION_H_
+#define RNN2D_ACTIVATION_H_
 
 #ifndef __host__
 #define __host__
@@ -62,4 +62,4 @@ class ReLU {
   }
 };
 
-#endif  // RNN2D_SRC_ACTIVATION_H_
+#endif  // RNN2D_ACTIVATION_H_

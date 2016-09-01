@@ -1,5 +1,5 @@
-#ifndef RNN2D_SRC_LSTM_CPU_H_
-#define RNN2D_SRC_LSTM_CPU_H_
+#ifndef RNN2D_LSTM_CPU_H_
+#define RNN2D_LSTM_CPU_H_
 
 #include <cmath>
 #include <cassert>
@@ -401,4 +401,4 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
   }
 }
 
-#endif  // RNN2D_SRC_LSTM_CPU_H_
+#endif  // RNN2D_LSTM_CPU_H_
