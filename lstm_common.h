@@ -16,111 +16,21 @@
 #define dQ_ptr(z, y, x, n, g, d)                                \
   (dQ + (((((z) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
 
-template <typename T>
-void print_Q(const int H, const int W, const int N, const int D,
-             const T* Q) {
-  for (int k = 0; k < 4; ++k) {
-    for (int y = 0; y < H; ++y) {
-      for (int x = 0; x < W; ++x) {
-        for (int n = 0; n < N; ++n) {
-          for (int g = 0; g < 6; ++g) {
-            fprintf(stderr, "Q(k=%d,y=%d,x=%d,n=%d,g=%d) =", k, y, x, n, g);
-            for (int d = 0; d < D; ++d) {
-              fprintf(stderr, " %.10g", *Q_ptr(k, y, x, n, g, d));
-            }
-            fprintf(stderr, "\n");
-          }
-        }
-        fprintf(stderr, "\n");
-      }
-    }
-  }
-}
-
-template <typename T>
-void print_I(const int H, const int W, const int N, const int K, const T* I) {
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < W; ++x) {
-      for (int n = 0; n < N; ++n) {
-        fprintf(stderr, "I(y=%d,x=%d,n=%d) =", y, x, n);
-        for (int k = 0; k < K; ++k) {
-          fprintf(stderr, " %.20g", *I_ptr(y, x, n, k));
-        }
-        fprintf(stderr, "\n");
-      }
-      fprintf(stderr, "\n");
-    }
-  }
-}
-
-template <typename T>
-void print_O(const int H, const int W, const int N, const int D, const T* O) {
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < W; ++x) {
-      for (int n = 0; n < N; ++n) {
-        fprintf(stderr, "O(y=%d,x=%d,n=%d) =", y, x, n);
-        for (int k = 0; k < 4; ++k) {
-          for (int d = 0; d < D; ++d) {
-            fprintf(stderr, " %.20g", *O_ptr(y, x, n, k, d));
-          }
-        }
-        fprintf(stderr, "\n");
-      }
-      fprintf(stderr, "\n");
-    }
-  }
-}
-
-
-template <typename T>
-void flip_y(const int H, const int W, const int N, const int D,
-            const T* X, T* Y) {
-  #pragma omp parallel for schedule(static) collapse(4)
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < W; ++x) {
-      for (int n = 0; n < N; ++n) {
-        for (int d = 0; d < D; ++d) {
-          const int i = (((        y) * W + (        x)) * N + n) * D + d;
-          const int j = (((H - y - 1) * W + (        x)) * N + n) * D + d;
-          Y[j] = X[i];
-        }
-      }
-    }
-  }
-}
-
-template <typename T>
-void flip_x(const int H, const int W, const int N, const int D,
-            const T* X, T* Y) {
-  #pragma omp parallel for schedule(static) collapse(4)
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < W; ++x) {
-      for (int n = 0; n < N; ++n) {
-        for (int d = 0; d < D; ++d) {
-          const int i = (((        y) * W + (        x)) * N + n) * D + d;
-          const int j = (((        y) * W + (W - x - 1)) * N + n) * D + d;
-          Y[j] = X[i];
-        }
-      }
-    }
-  }
-}
-
-template <typename T>
-void flip_yx(const int H, const int W, const int N, const int D,
-            const T* X, T* Y) {
-  #pragma omp parallel for schedule(static) collapse(4)
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < W; ++x) {
-      for (int n = 0; n < N; ++n) {
-        for (int d = 0; d < D; ++d) {
-          const int i = (((        y) * W + (        x)) * N + n) * D + d;
-          const int j = (((H - y - 1) * W + (W - x - 1)) * N + n) * D + d;
-          Y[j] = X[i];
-        }
-      }
-    }
-  }
-}
+#define B_ptr(z, g, d)                                  \
+  (P  + (z) * (1 + K + D + D) * 5 * D + (g) * D + (d))
+#define dB_ptr(z, g, d)                                 \
+  (dP + (z) * (1 + K + D + D) * 5 * D + (g) * D + (d))
+#define W_ptr(z, k, g, d)                                               \
+  (P  + ((z) * (1 + K + D + D) + 1 + (k)) * 5 * D + (g) * D + (d))
+#define dW_ptr(z, k, g, d)                                              \
+  (dP + ((z) * (1 + K + D + D) + 1 + (k)) * 5 * D + (g) * D + (d))
+#define Ry_ptr(z, d1, g, d2)                                            \
+  (P  + ((z) * (1 + K + D + D) + 1 + K + (d1)) * 5 * D + (g) * D + (d2))
+#define dRy_ptr(z, d1, g, d2)                                           \
+  (dP + ((z) * (1 + K + D + D) + 1 + K + (d1)) * 5 * D + (g) * D + (d2))
+#define Rx_ptr(z, d1, g, d2)                                            \
+  (P  + ((z) * (1 + K + D + D) + 1 + K + D + (d1)) * 5 * D + (g) * D + (d2))
+#define dRx_ptr(z, d1, g, d2)                                           \
+  (dP + ((z) * (1 + K + D + D) + 1 + K + D + (d1)) * 5 * D + (g) * D + (d2))
 
 #endif  // RNN2D_LSTM_COMMON_H_

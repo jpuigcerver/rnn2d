@@ -8,6 +8,11 @@
 #include "activation.h"
 #include "lstm_common.h"
 #include "math_gpu.h"
+#include "utils.h"
+
+#ifndef __CUDACC__
+#error "This should be compiled with nvcc!"
+#endif
 
 #define MAX_DIAG_N 1024
 
@@ -38,6 +43,56 @@
  *   Bottom-Right origin: y,x-offsets = +1, +1
  */
 
+template <typename T>
+__global__
+void kernel_init_Q_with_bias(
+    const int H, const int W, const int N, const int K, const int D,
+    const T* P, T* Q) {
+  const int d = thGi % D;                      // d \in [0 ... D-1]
+  const int g = (thGi / D) % 5;                // g \in [0 ... 5]
+  const int n = (thGi / (5 * D)) % N;          // n \in [0 ... N-1]
+  const int x = (thGi / (N * 5 * D)) % W;      // x \in [0 ... W-1]
+  const int y = (thGi / (W * N * 5 * D)) % H;  // y \in [0 ... H-1]
+  const int z = (thGi / (H * W * N * 5 * D));  // z \in [0 ... 3]
+  if (z < 4) {
+    //printf("%d %d %d %d %d %d\n", z, y, x, n, g, d);
+    printf("%d %d\n", g * D + d, 5 * D);
+    *Q_ptr(z, y, x, n, g, d) = *B_ptr(z, g, d);
+  }
+}
+
+template <typename T, typename FG, typename FI, typename FO>
+__global__
+void kernel_elemwise_ops(const int H, const int W, const int N, const int D,
+                         const int u, const int Un, const int Umin,
+                         const int* S, T* Q, T* O) {
+  const int d = thGi % D;
+  const int n = (thGi / D) % N;
+  const int e = (thGi / (N * D)) % Un;
+  const int z = (thGi / (Un * N * D));
+  const int i = e + Umin;
+  const int j = u - i;
+  const int y  = (z == 0 || z == 1) ? i : H - i - 1;
+  const int x  = (z == 0 || z == 2) ? j : W - j - 1;
+  const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
+  const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
+
+  if (S == 0 || (y < S[n * 2] && x < S[n * 2 + 1])) {
+    const T f_a   = FI::f(*Q_ptr(z, y, x, n, 0, d));  // f_i(input)
+    const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 1, d));  // f_g(input gate)
+    const T f_go  = FG::f(*Q_ptr(z, y, x, n, 2, d));  // f_g(output gate)
+    const T f_gfy = FG::f(*Q_ptr(z, y, x, n, 3, d));  // f_g(forget_y gate)
+    const T f_gfx = FG::f(*Q_ptr(z, y, x, n, 4, d));  // f_g(forget_x gate)
+    const T C_10  = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
+    const T C_01  = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
+    *Q_ptr(z, y, x, n, 5, d) = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;
+    *O_ptr(y, x, n, z, d) = f_go * FO::f(*Q_ptr(z, y, x, n, 5, d));
+  } else {
+    *Q_ptr(z, y, x, n, 5, d) = 0;
+    *O_ptr(y, x, n, z, d) = 0;
+  }
+}
+
 /* 2D-LSTM forward pass running on the CPU
    H -> maximum height
    W -> maximum width
@@ -53,45 +108,27 @@
 */
 template < typename T, typename FG, typename FI, typename FO >
 void lstm_2d_fw_gpu(const int H, const int W, const int N, const int K,
-                     const int D, const T* I, const int* S, const T* P[4],
+                     const int D, const T* I, const int* S, const T* P,
                      T* O, T* Q) {
-  // Bias, in each direction
-  const T* b[4] = {P[0], P[1], P[2], P[3]};
-  // Input weights, in each direction
-  const T* iW[4] = {P[0] + 5 * D, P[1] + 5 * D, P[2] + 5 * D, P[3] + 5 * D};
-  // Recurrent weights for the y-dimension, in each direction
-  const T* Ry[4] = {
-    P[0] + 5 * D + K * 5 * D,
-    P[1] + 5 * D + K * 5 * D,
-    P[2] + 5 * D + K * 5 * D,
-    P[3] + 5 * D + K * 5 * D
-  };
-  // Recurrent weights for the x-dimension, in each direction
-  const T* Rx[4] = {
-    P[0] + 5 * D + K * 5 * D + D * 5 * D,
-    P[1] + 5 * D + K * 5 * D + D * 5 * D,
-    P[2] + 5 * D + K * 5 * D + D * 5 * D,
-    P[3] + 5 * D + K * 5 * D + D * 5 * D
-  };
-
+  // Prepare cublas handler and streams
   cublasHandle_t handle;
-  cublasCreate(&handle); // check for errors
-
-  // Streams
+  cublasCreate(&handle);  // TODO: check for errors
   cudaStream_t stream[4][MAX_DIAG_N];
   for (int z = 0; z < 4; ++z) {
     for (int e = 0; e < MAX_DIAG_N; ++e)
-      cudaStreamCreate(&stream[z][e]);
+      cudaStreamCreate(&stream[z][e]);  // TODO: check for errors
   }
 
-  // TODO: Initialize with bias
+  // Initialize gates with bias
+  kernel_init_Q_with_bias<T><<<DIV_UP(4 * H * W * N * 5 * D, 512), 512>>>(
+      H, W, N, K, D, P, Q);
 
   // Multiply inputs by weights.
   for (int z = 0; z < 4; ++z) {
     cublasSetStream(handle, stream[z][0]);
     gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, H * W * N, 5 * D, K,
                 1.0, I, K,
-                iW[z], 5 * D,
+                W_ptr(z, 0, 0, 0), 5 * D,
                 1.0, Q_ptr(z, 0, 0, 0, 0, 0), 6 * D);
   }
 
@@ -109,32 +146,46 @@ void lstm_2d_fw_gpu(const int H, const int W, const int N, const int K,
 
     for (int z = 0; z < 4; ++z) {
       for (int e = 0; e < Un; ++e) {
-        cublasSetStream(handle, streams[z][e]);
+        cublasSetStream(handle, stream[z][e]);
         // (y, x) coordinates of the e-th element in the z-th diagonal.
-        const int i = e + Zmin;
+        const int i = e + Umin;
         const int j = u - i;
         const int y  = (z == 0 || z == 1) ? i : H - i - 1;
         const int x  = (z == 0 || z == 2) ? j : W - j - 1;
         const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
         const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
-        T* Q_00 = Q_ptr(k, y, x, 0, 0, 0);
+        T* Q_00 = Q_ptr(z, y, x, 0, 0, 0);
         if (yp >= 0 && yp <= H - 1) {
-          const T* O_10 = O_ptr(yp, x, 0, k, 0);
-          gemm_cpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
+          const T* O_10 = O_ptr(yp, x, 0, z, 0);
+          gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
                       1.0, O_10, 4 * D,
-                      Ry[k], 5 * D,
+                      Ry_ptr(z, 0, 0, 0), 5 * D,
                       1.0, Q_00, 6 * D);
         }
         if (xp >= 0 && xp <= W - 1) {
-          const T* O_01 = O_ptr(y, xp, 0, k, 0);
-          gemm_cpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
+          const T* O_01 = O_ptr(y, xp, 0, z, 0);
+          gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
                       1.0, O_01, 4 * D,
-                      Rx[k], 5 * D,
+                      Rx_ptr(z, 0, 0, 0), 5 * D,
                       1.0, Q_00, 6 * D);
         }
       }
     }
+    for (int z = 0; z < 4; ++z) {
+      for (int e = 0; e < Un; ++e) {
+        cudaStreamSynchronize(stream[z][e]);
+      }
+    }
+
+    kernel_elemwise_ops<T, FG, FI, FO><<<DIV_UP(4 * Un * N * D, 512), 512>>>(
+        H, W, N, D, u, Un, Umin, S, Q, O);
   }
+
+  for (int z = 0; z < 4; ++z) {
+    for (int e = 0; e < MAX_DIAG_N; ++e)
+      cudaStreamDestroy(stream[z][e]);  // TODO: check for errors
+  }
+  cublasDestroy(handle);  // TODO: check for errors
 }
 
 

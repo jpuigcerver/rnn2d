@@ -51,27 +51,8 @@
 */
 template < typename T, typename FG, typename FI, typename FO >
 void lstm_2d_fw_cpu(const int H, const int W, const int N, const int K,
-                     const int D, const T* I, const int* S, const T* P[4],
+                     const int D, const T* I, const int* S, const T* P,
                      T* O, T* Q) {
-  // Bias, in each direction
-  const T* b[4] = {P[0], P[1], P[2], P[3]};
-  // Input weights, in each direction
-  const T* iW[4] = {P[0] + 5 * D, P[1] + 5 * D, P[2] + 5 * D, P[3] + 5 * D};
-  // Recurrent weights for the y-dimension, in each direction
-  const T* Ry[4] = {
-    P[0] + 5 * D + K * 5 * D,
-    P[1] + 5 * D + K * 5 * D,
-    P[2] + 5 * D + K * 5 * D,
-    P[3] + 5 * D + K * 5 * D
-  };
-  // Recurrent weights for the x-dimension, in each direction
-  const T* Rx[4] = {
-    P[0] + 5 * D + K * 5 * D + D * 5 * D,
-    P[1] + 5 * D + K * 5 * D + D * 5 * D,
-    P[2] + 5 * D + K * 5 * D + D * 5 * D,
-    P[3] + 5 * D + K * 5 * D + D * 5 * D
-  };
-
   // Initialize input to the block and gates with bias
   #pragma omp parallel for
   for (int i = 0; i < 4 * H * W * N * 5 * D; ++i) {
@@ -81,18 +62,19 @@ void lstm_2d_fw_cpu(const int H, const int W, const int N, const int K,
     const int x   = (i / (N * 5 * D)) % W;
     const int y   = (i / (W * N * 5 * D)) % H;
     const int k   = i / (H * W * N * 5 * D);
-    *Q_ptr(k, y, x, n, g, d) = b[k][g * D + d];
+    *Q_ptr(k, y, x, n, g, d) = *B_ptr(k, g, d);
   }
 
   // Multiply inputs by weights. Each direction can run in parallel
   for (int k = 0; k < 4; ++k) {
     T* Qk = Q + k * H * W * N * 6 * D;
     gemm_cpu<T>('N', 'N', H * W * N, 5 * D, K,
-                1.0, I, K,          /* I reshaped as (H * W * N) x K */
-                iW[k], 5 * D,       /* iW reshaped as K x (5 * D) */
-                1.0, Qk, 6 * D);    /* Qk reshaped as (H * W * N) x (6 * D),
-                                       notice that only first 5 * D columns are
-                                       used. */
+                1.0, I, K,                /* I reshaped as (H * W * N) x K */
+                W_ptr(k, 0, 0, 0), 5 * D, /* iW reshaped as K x (5 * D) */
+                1.0, Qk, 6 * D);          /* Qk reshaped as
+                                             (H * W * N) x (6 * D),
+                                             notice that only first 5 * D
+                                             columns are used. */
   }
 
   // Process the image diagonal-wise (there are H + W - 1 diagonals to process)
@@ -117,21 +99,27 @@ void lstm_2d_fw_cpu(const int H, const int W, const int N, const int K,
       T* Q_00 = Q_ptr(k, y, x, 0, 0, 0);
       if (yp >= 0 && yp <= H - 1) {
         const T* O_10 = O_ptr(yp, x, 0, k, 0);
+        /* O_10 reshaped as N x (4 * D). */
+        /* Ry reshaped as D x (5 * D) */
+        /* Q reshaped as (H * W * N) x (6 * D),
+           notice that only first 5 * D columns
+           are used. */
         gemm_cpu<T>('N', 'N', N, 5 * D, D,
-                    1.0, O_10, 4 * D,   /* O_10 reshaped as N x (4 * D). */
-                    Ry[k], 5 * D,       /* Ry reshaped as D x (5 * D) */
-                    1.0, Q_00, 6 * D);  /* Q reshaped as (H * W * N) x (6 * D),
-                                           notice that only first 5 * D columns
-                                           are used. */
+                    1.0, O_10, 4 * D,
+                    Ry_ptr(k, 0, 0, 0), 5 * D,
+                    1.0, Q_00, 6 * D);
       }
       if (xp >= 0 && xp <= W - 1) {
+        /* O_01 reshaped as N x (4 * D). */
+        /* Rx reshaped as D x (5 * D) */
+        /* Q reshaped as (H * W * N) x (6 * D),
+           notice that only first 5 * D columns
+           are used. */
         const T* O_01 = O_ptr(y, xp, 0, k, 0);
         gemm_cpu<T>('N', 'N', N, 5 * D, D,
-                    1.0, O_01, 4 * D,   /* O_01 reshaped as N x (4 * D). */
-                    Rx[k], 5 * D,       /* Rx reshaped as D x (5 * D) */
-                    1.0, Q_00, 6 * D);  /* Q reshaped as (H * W * N) x (6 * D),
-                                           notice that only first 5 * D columns
-                                           are used. */
+                    1.0, O_01, 4 * D,
+                    Rx_ptr(k, 0, 0, 0), 5 * D,
+                    1.0, Q_00, 6 * D);
       }
     }
 
@@ -198,26 +186,9 @@ inline void copym_cpu(int m, int n, const T* A, int lda, T* B, const int ldb) {
 */
 template <typename T, typename FG, typename FI, typename FO>
 void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
-                     const int D, const T* I, const int* S, const T* P[4],
+                     const int D, const T* I, const int* S, const T* P,
                      const T* O, const T* Q, const T* dO,
-                     T* dQ, T* dI, T* dP[4]) {
-  // Input weights, in each direction
-  const T* iW[4] = {P[0] + 5 * D, P[1] + 5 * D, P[2] + 5 * D, P[3] + 5 * D};
-  // Recurrent weights for the y-dimension, in each direction
-  const T* Ry[4] = {
-    P[0] + 5 * D + K * 5 * D,
-    P[1] + 5 * D + K * 5 * D,
-    P[2] + 5 * D + K * 5 * D,
-    P[3] + 5 * D + K * 5 * D
-  };
-  // Recurrent weights for the x-dimension, in each direction
-  const T* Rx[4] = {
-    P[0] + 5 * D + K * 5 * D + D * 5 * D,
-    P[1] + 5 * D + K * 5 * D + D * 5 * D,
-    P[2] + 5 * D + K * 5 * D + D * 5 * D,
-    P[3] + 5 * D + K * 5 * D + D * 5 * D
-  };
-
+                     T* dQ, T* dI, T* dP) {
   // Process the image diagonal-wise, in backwards order
   // (there are H + W - 1 diagonals to process)
   for (int t = 0; t < H + W - 1; ++t) {
@@ -255,7 +226,7 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
         for (int g = 0; g < 5; ++g) {
           gemm_cpu<T>('N', 'T', N, D, D,
                       1.0, dQ_ptr(z, yn, x, 0, g, 0), 6 * D,
-                      Ry[z] + g * D, 5 * D,
+                      Ry_ptr(z, 0, g, 0), 5 * D,
                       1.0, dC_00, 6 * D);
         }
       }
@@ -263,7 +234,7 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
         for (int g = 0; g < 5; ++g) {
           gemm_cpu<T>('N', 'T', N, D, D,
                       1.0, dQ_ptr(z, y, xn, 0, g, 0), 6 * D,
-                      Rx[z] + g * D, 5 * D,
+                      Rx_ptr(z, 0, g, 0), 5 * D,
                       1.0, dC_00, 6 * D);
         }
       }
@@ -319,50 +290,43 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
 
   // dJ/dI(y,x)
   for (int z = 0; z < 4; ++z) {
+    /* dQ reshaped as (H * W * N) x (6 * D),
+       but only the first 5 * D columns are
+       used */
+    /* iW^T reshaped as (5 * D) x (K) */
+    /* dI reshaped as (H * W * N) x K */
     gemm_cpu<T>('N', 'T', H * W * N, K, 5 * D,
                 1.0, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                                      /* dQ reshaped as (H * W * N) x (6 * D),
-                                         but only the first 5 * D columns are
-                                         used */
-                iW[z], 5 * D,             /* iW^T reshaped as (5 * D) x (K) */
-                (z == 0 ? 0 : 1), dI, K); /* dI reshaped as (H * W * N) x K */
+                W_ptr(z, 0, 0, 0), 5 * D,
+                (z == 0 ? 0 : 1), dI, K);
   }
 
-  // Initialize derivatives to 0
-  memset(dP[0], 0x00, sizeof(T) * (5 * D + K * 5 * D + D * 5 * D + D * 5 * D));
-  memset(dP[1], 0x00, sizeof(T) * (5 * D + K * 5 * D + D * 5 * D + D * 5 * D));
-  memset(dP[2], 0x00, sizeof(T) * (5 * D + K * 5 * D + D * 5 * D + D * 5 * D));
-  memset(dP[3], 0x00, sizeof(T) * (5 * D + K * 5 * D + D * 5 * D + D * 5 * D));
+  // Initialize parameters derivatives to 0
+  memset(dP, 0x00, sizeof(T) * 4 * (1 + K + D + D) * 5 * D);
 
   // dJ/db
-  T* db[4] = {dP[0], dP[1], dP[2], dP[3]};
-  #pragma omp parallel for collapse(2)
+  #pragma omp parallel for collapse(3)
   for (int z = 0; z < 4; ++z) {
-    for (int d = 0; d < 5 * D; ++d) {
-      const T* dQz = dQ + z * H * W * N * 6 * D;
-      for (int n = 0; n < H * W * N; ++n) {
-        db[z][d] += dQz[n * 6 * D + d];
+    for (int g = 0; g < 5; ++g) {
+      for (int d = 0; d < D; ++d) {
+        const T* dQz = dQ + z * H * W * N * 6 * D;
+        for (int n = 0; n < H * W * N; ++n) {
+          *dB_ptr(z, g, d) += dQz[n * 6 * D + g * D + d];
+        }
       }
     }
   }
 
-  // dJ/diW
-  T* diW[4] = {dP[0] + 5 * D, dP[1] + 5 * D, dP[2] + 5 * D, dP[3] + 5 * D};
+  // dJ/dW
   #pragma omp parallel for
   for (int z = 0; z < 4; ++z) {
     gemm_cpu<T>('T', 'N', K, 5 * D, H * W * N,
                 1.0, I, K,
                 dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                0.0, diW[z], 5 * D);
+                0.0, dW_ptr(z, 0, 0, 0), 5 * D);
   }
 
   // dJ/dRy
-  T* dRy[4] = {
-    dP[0] + 5 * D + K * 5 * D,
-    dP[1] + 5 * D + K * 5 * D,
-    dP[2] + 5 * D + K * 5 * D,
-    dP[3] + 5 * D + K * 5 * D
-  };
   #pragma omp parallel for
   for (int z = 0; z < 4; ++z) {
     for (int y = 0; y < H; ++y) {
@@ -372,19 +336,13 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
           gemm_cpu<T>('T', 'N', D, 5 * D, N,
                       1.0, O_ptr(yp, x, 0, z, 0), 4 * D,
                       dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
-                      1.0, dRy[z], 5 * D);
+                      1.0, dRy_ptr(z, 0, 0, 0), 5 * D);
         }
       }
     }
   }
 
   // dJ/dRx
-  T* dRx[4] = {
-    dP[0] + 5 * D + K * 5 * D + D * 5 * D,
-    dP[1] + 5 * D + K * 5 * D + D * 5 * D,
-    dP[2] + 5 * D + K * 5 * D + D * 5 * D,
-    dP[3] + 5 * D + K * 5 * D + D * 5 * D
-  };
   #pragma omp parallel for
   for (int z = 0; z < 4; ++z) {
     for (int y = 0; y < H; ++y) {
@@ -394,7 +352,7 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
           gemm_cpu<T>('T', 'N', D, 5 * D, N,
                       1.0, O_ptr(y, xp, 0, z, 0), 4 * D,
                       dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
-                      1.0, dRx[z], 5 * D);
+                      1.0, dRx_ptr(z, 0, 0, 0), 5 * D);
         }
       }
     }
