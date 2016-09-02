@@ -48,17 +48,14 @@ __global__
 void kernel_init_Q_with_bias(
     const int H, const int W, const int N, const int K, const int D,
     const T* P, T* Q) {
+  if (thGi >= 4 * H * W * N * 5 * D) return;
   const int d = thGi % D;                      // d \in [0 ... D-1]
   const int g = (thGi / D) % 5;                // g \in [0 ... 5]
   const int n = (thGi / (5 * D)) % N;          // n \in [0 ... N-1]
   const int x = (thGi / (N * 5 * D)) % W;      // x \in [0 ... W-1]
   const int y = (thGi / (W * N * 5 * D)) % H;  // y \in [0 ... H-1]
   const int z = (thGi / (H * W * N * 5 * D));  // z \in [0 ... 3]
-  if (z < 4) {
-    //printf("%d %d %d %d %d %d\n", z, y, x, n, g, d);
-    printf("%d %d\n", g * D + d, 5 * D);
-    *Q_ptr(z, y, x, n, g, d) = *B_ptr(z, g, d);
-  }
+  *Q_ptr(z, y, x, n, g, d) = *B_ptr(z, g, d);
 }
 
 template <typename T, typename FG, typename FI, typename FO>
@@ -66,6 +63,7 @@ __global__
 void kernel_elemwise_ops(const int H, const int W, const int N, const int D,
                          const int u, const int Un, const int Umin,
                          const int* S, T* Q, T* O) {
+  if (thGi >= 4 * Un * N * D) return;
   const int d = thGi % D;
   const int n = (thGi / D) % N;
   const int e = (thGi / (N * D)) % Un;
@@ -208,9 +206,9 @@ void lstm_2d_fw_gpu(const int H, const int W, const int N, const int K,
 */
 template <typename T, typename FG, typename FI, typename FO>
 void lstm_2d_bw_gpu(const int H, const int W, const int N, const int K,
-                    const int D, const T* I, const int* S, const T* P[4],
+                    const int D, const T* I, const int* S, const T* P,
                     const T* O, const T* Q, const T* dO,
-                    T* dQ, T* dI, T* dP[4]) {
+                    T* dQ, T* dI, T* dP) {
 
 }
 

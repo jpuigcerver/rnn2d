@@ -20,7 +20,7 @@
 // ldc -> size of the leading dimension (number of columns in a row) in C
 template <typename T>
 inline cublasStatus_t gemm_gpu(
-    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t obB,
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
     int m, int n, int k, T alpha, const T* A, int lda, const T* B, int ldb,
     T beta, T* C, int ldc);
 
@@ -31,7 +31,7 @@ inline cublasStatus_t gemm_gpu(
 
 template <>
 inline cublasStatus_t gemm_gpu<float>(
-    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t obB,
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
     int m, int n, int k, float alpha, const float* A, int lda,
     const float* B, int ldb, float beta, float* C, int ldc) {
   return cublasSgemm(handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta,
@@ -40,7 +40,7 @@ inline cublasStatus_t gemm_gpu<float>(
 
 template <>
 inline cublasStatus_t gemm_gpu<double>(
-    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t obB,
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
     int m, int n, int k, double alpha, const double* A, int lda,
     const double* B, int ldb, double beta, double* C, int ldc) {
   return cublasDgemm(handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta,
@@ -49,7 +49,7 @@ inline cublasStatus_t gemm_gpu<double>(
 
 template <>
 inline cublasStatus_t gemm_gpu<__half>(
-    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t obB,
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
     int m, int n, int k, __half alpha, const __half* A, int lda,
     const __half* B, int ldb, __half beta, __half* C, int ldc) {
   return cublasHgemm(handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta,

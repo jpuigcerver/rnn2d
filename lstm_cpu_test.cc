@@ -41,11 +41,12 @@ MATCHER(DoubleEqPointwise, "") {
 
 }  // namespace testing
 
+
 using ::testing::Pointwise;
-using ::testing::FloatEq;
-using ::testing::DoubleEq;
-using ::testing::FloatEqPointwise;
-using ::testing::DoubleEqPointwise;
+using ::testing::FloatRelativeEq;
+using ::testing::FloatRelativeEqPointwise;
+using ::testing::DoubleRelativeEqPointwise;
+
 
 static const int H = 2, W = 3, N = 2, K = 3, D = 2;
 static const int S[N * 2] = {2, 3, 2, 3};
@@ -213,9 +214,6 @@ const std::vector<double>& expected_O() {
 template <typename T>
 inline T expected_sum_dI();
 
-template <typename T>
-inline T expected_sum_dP();
-
 template <>
 inline float expected_sum_dI<float>() {
   static const uint32_t H = 0x4193d611;
@@ -227,6 +225,9 @@ inline double expected_sum_dI<double>() {
   static const uint64_t H = 0x40327ac23c1e8713L;
   return *reinterpret_cast<const double*>(&H);
 }
+
+template <typename T>
+inline T expected_sum_dP();
 
 template <>
 inline float expected_sum_dP<float>() {
@@ -240,7 +241,6 @@ inline double expected_sum_dP<double>() {
   return *reinterpret_cast<const double*>(&H);
 }
 
-
 template <typename T, typename M>
 void test_forward(const M& matcher) {
   // Allocate space used for the internal states
@@ -250,15 +250,6 @@ void test_forward(const M& matcher) {
   lstm_2d_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, I<T>().data(), S, P<T>().data(), O.data(), Q.data());
   EXPECT_THAT(O, Pointwise(matcher, expected_O<T>()));
-}
-
-template <typename T>
-T compute_J(const int H, const int W, const int N, const int D,
-               const T* O, const T* dO) {
-  T J = 0;
-  for (int i = 0; i < H * W * N * 4 * D; ++i)
-    J += O[i] * dO[i];
-  return J;
 }
 
 template <typename T>
@@ -284,16 +275,16 @@ void test_backward() {
 
   // Check dJ/dI
   const T sum_dI = std::accumulate(dI.begin(), dI.end(), static_cast<T>(0));
-  EXPECT_TRUE(::testing::FloatRelativeEq<T>(expected_sum_dI<T>(), sum_dI, 1E-5));
+  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dI<T>(), sum_dI, 1E-5));
 
   // Check dJ/dP
   const T sum_dP = std::accumulate(dP.begin(), dP.end(), static_cast<T>(0));
-  EXPECT_TRUE(::testing::FloatRelativeEq<T>(expected_sum_dP<T>(), sum_dP, 1E-5));
+  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dP<T>(), sum_dP, 1E-5));
 }
 
 TEST(lstm_cpu_test, forward) {
-  test_forward<float>(::testing::FloatRelativeEqPointwise(1E-5));
-  test_forward<double>(::testing::DoubleRelativeEqPointwise(1E-5));
+  test_forward<float>(FloatRelativeEqPointwise(1E-5));
+  test_forward<double>(DoubleRelativeEqPointwise(1E-5));
 }
 
 TEST(lstm_cpu_test, backward) {

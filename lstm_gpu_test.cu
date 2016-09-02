@@ -12,6 +12,26 @@ static std::default_random_engine RNG = std::default_random_engine();
 
 namespace testing {
 
+template <typename T>
+bool FloatRelativeEq(const T r, const T a, const T t) {
+  const T d = std::fabs(r - a);
+  const T R = std::fabs(r);
+  const T A = std::fabs(a);
+  const T Min = std::min(A, R);
+  const T Max = std::max(A, R);
+  return Min > t ? (d <= Max * t) : (d <= t);
+}
+
+MATCHER_P(FloatRelativeEqPointwise, tol, "") {
+  return FloatRelativeEq<float>(std::get<1>(arg), std::get<0>(arg),
+                                tol);
+}
+
+MATCHER_P(DoubleRelativeEqPointwise, tol, "") {
+  return FloatRelativeEq<double>(std::get<1>(arg), std::get<0>(arg),
+                                 tol);
+}
+
 MATCHER(FloatEqPointwise, "") {
   return Matcher<float>(FloatEq(get<1>(arg))).Matches(get<0>(arg));
 }
@@ -22,11 +42,12 @@ MATCHER(DoubleEqPointwise, "") {
 
 }  // namespace testing
 
+
 using ::testing::Pointwise;
-using ::testing::FloatEq;
-using ::testing::DoubleEq;
-using ::testing::FloatEqPointwise;
-using ::testing::DoubleEqPointwise;
+using ::testing::FloatRelativeEq;
+using ::testing::FloatRelativeEqPointwise;
+using ::testing::DoubleRelativeEqPointwise;
+
 
 static const int H = 2, W = 3, N = 2, K = 3, D = 2;
 static const std::vector<int> S{2, 3, 2, 3};
@@ -194,9 +215,6 @@ const std::vector<double>& expected_O() {
 template <typename T>
 inline T expected_sum_dI();
 
-template <typename T>
-inline T expected_sum_dP();
-
 template <>
 inline float expected_sum_dI<float>() {
   static const uint32_t H = 0x4193d611;
@@ -208,6 +226,9 @@ inline double expected_sum_dI<double>() {
   static const uint64_t H = 0x40327ac23c1e8713L;
   return *reinterpret_cast<const double*>(&H);
 }
+
+template <typename T>
+inline T expected_sum_dP();
 
 template <>
 inline float expected_sum_dP<float>() {
@@ -221,76 +242,58 @@ inline double expected_sum_dP<double>() {
   return *reinterpret_cast<const double*>(&H);
 }
 
-
 template <typename T, typename M>
 void test_forward(const M& matcher) {
   const thrust::device_vector<T> gpuI(I<T>());
   const thrust::device_vector<T> gpuP(P<T>());
+  const thrust::device_vector<int> gpuS(S);
   thrust::device_vector<T> gpuQ(4 * H * W * N * 6 * D);
   thrust::device_vector<T> gpuO(H * W * N * 4 * D);
-  thrust::device_vector<int> gpuS(S);
-
   lstm_2d_fw_gpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, gpuI.data().get(), gpuS.data().get(), gpuP.data().get(),
       gpuO.data().get(), gpuQ.data().get());
-  //EXPECT_THAT(O, Pointwise(matcher, expected_O<T>()));
+  thrust::host_vector<T> cpuO(gpuO);
+  EXPECT_THAT(cpuO, Pointwise(matcher, expected_O<T>()));
 }
+
 
 template <typename T>
-T compute_J(const int H, const int W, const int N, const int D,
-               const T* O, const T* dO) {
-  T J = 0;
-  for (int i = 0; i < H * W * N * 4 * D; ++i)
-    J += O[i] * dO[i];
-  return J;
-}
-
-template <typename T, typename M>
-void test_backward(M matcher) {
-  const T* Pd[] = {P<T>().data(), P<T>().data(), P<T>().data(), P<T>().data()};
-  // Allocate space used for the internal states
-  std::vector<T> Q(4 * H * W * N * 6 * D);
-  std::vector<T> dQ(4 * H * W * N * 6 * D);
-  // Output
-  std::vector<T> O(H * W * N * 4 * D);
-  // Derivative w.r.t. input
-  std::vector<T> dI(H * W * N * K);
-  // Derivative w.r.t. parameters
-  std::vector<T> dP(4 * P<T>().size());
-  // Derivatives of the parameters in each direction
-  T* dPd[4] = {
-    dP.data() + 0 * (5 * D + K * 5 * D + D * 5 * D + D * 5 * D),
-    dP.data() + 1 * (5 * D + K * 5 * D + D * 5 * D + D * 5 * D),
-    dP.data() + 2 * (5 * D + K * 5 * D + D * 5 * D + D * 5 * D),
-    dP.data() + 3 * (5 * D + K * 5 * D + D * 5 * D + D * 5 * D),
-  };
-
-  std::vector<T> vI = I<T>();
-
+void test_backward() {
+  const thrust::device_vector<T> gpu_I(I<T>());
+  const thrust::device_vector<T> gpu_P(P<T>());
+  const thrust::device_vector<int> gpu_S(S);
+  const thrust::device_vector<T> gpu_dO(dO<T>());
+  thrust::device_vector<T> gpu_Q(4 * H * W * N * 6 * D);
+  thrust::device_vector<T> gpu_dQ(4 * H * W * N * 6 * D);
+  thrust::device_vector<T> gpu_O(H * W * N * 4 * D);
+  thrust::device_vector<T> gpu_dI(gpu_I.size());
+  thrust::device_vector<T> gpu_dP(gpu_P.size());
   // Forward pass
   lstm_2d_fw_gpu< T, Linear<T>, Linear<T>, Linear<T> >(
-      H, W, N, K, D, vI.data(), S, Pd, O.data(), Q.data());
-
+      H, W, N, K, D, gpu_I.data().get(), gpu_S.data().get(), gpu_P.data().get(),
+      gpu_O.data().get(), gpu_Q.data().get());
   // Backward pass
   lstm_2d_bw_gpu< T, Linear<T>, Linear<T>, Linear<T> >(
-      H, W, N, K, D, vI.data(), S, Pd, O.data(), Q.data(),
-      dO<T>().data(), dQ.data(), dI.data(), dPd);
+      H, W, N, K, D, gpu_I.data().get(), gpu_S.data().get(), gpu_P.data().get(),
+      gpu_O.data().get(), gpu_Q.data().get(), gpu_dO.data().get(),
+      gpu_dQ.data().get(), gpu_dI.data().get(), gpu_dP.data().get());
+
 
   // Check dJ/dI
-  const T sum_dI = std::accumulate(dI.begin(), dI.end(), static_cast<T>(0));
-  EXPECT_THAT(sum_dI, matcher(expected_sum_dI<T>()));
+  const T sum_dI = thrust::reduce(gpu_dI.begin(), gpu_dI.end());
+  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dI<T>(), sum_dI, 1E-5));
 
   // Check dJ/dP
-  const T sum_dP = std::accumulate(dP.begin(), dP.end(), static_cast<T>(0));
-  EXPECT_THAT(sum_dP, matcher(expected_sum_dP<T>()));
+  const T sum_dP = thrust::reduce(gpu_dP.begin(), gpu_dP.end());
+  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dP<T>(), sum_dP, 1E-5));
 }
 
 TEST(lstm_gpu_test, forward) {
-  test_forward<float>(FloatEqPointwise());
-  test_forward<double>(DoubleEqPointwise());
+  test_forward<float>(FloatRelativeEqPointwise(1E-5));
+  test_forward<double>(DoubleRelativeEqPointwise(1E-5));
 }
 
 TEST(lstm_gpu_test, backward) {
-  //test_backward<float>(FloatEq);
-  //test_backward<double>(DoubleEq);
+  test_backward<float>();
+  test_backward<double>();
 }
