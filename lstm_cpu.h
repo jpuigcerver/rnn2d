@@ -223,23 +223,17 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
       T* dC_00 = dQ_ptr(z, y, x, 0, 5, 0);
       copym_cpu<T>(N, D, dO_ptr(y, x, 0, z, 0), 4 * D, dC_00, 6 * D);
       if (yn >= 0 && yn < H) {
-        for (int g = 0; g < 5; ++g) {
-          gemm_cpu<T>('N', 'T', N, D, D,
-                      1.0, dQ_ptr(z, yn, x, 0, g, 0), 6 * D,
-                      Ry_ptr(z, 0, g, 0), 5 * D,
-                      1.0, dC_00, 6 * D);
-        }
+        gemm_cpu<T>('N', 'T', N, D, 5 * D,
+                    1.0, dQ_ptr(z, yn, x, 0, 0, 0), 6 * D,
+                    Ry_ptr(z, 0, 0, 0), 5 * D,
+                    1.0, dC_00, 6 * D);
       }
       if (xn >= 0 && xn < W) {
-        for (int g = 0; g < 5; ++g) {
-          gemm_cpu<T>('N', 'T', N, D, D,
-                      1.0, dQ_ptr(z, y, xn, 0, g, 0), 6 * D,
-                      Rx_ptr(z, 0, g, 0), 5 * D,
-                      1.0, dC_00, 6 * D);
-        }
+        gemm_cpu<T>('N', 'T', N, D, 5 * D,
+                    1.0, dQ_ptr(z, y, xn, 0, 0, 0), 6 * D,
+                    Rx_ptr(z, 0, 0, 0), 5 * D,
+                    1.0, dC_00, 6 * D);
       }
-
-      copym_cpu<T>(N, D, dC_00, 6 * D, dQ_ptr(z, y, x, 0, 2, 0), 6 * D);
 
       #pragma omp parallel for collapse(2)
       for (int n = 0; n < N; ++n) {
@@ -263,10 +257,8 @@ void lstm_2d_bw_cpu(const int H, const int W, const int N, const int K,
           const T Gi_00   = *Q_ptr(z, y, x, n, 1, d);
           const T A_00    = *Q_ptr(z, y, x, n, 0, d);
           if (y < S[2 * n] && x < S[2 * n + 1]) {
-            *dGo_00 =
-                (*dGo_00) * FO::f(C_00) * FG::df(Go_00);
-            *dC_00  =
-                (*dC_00)  * FO::df(C_00) * FG::f(Go_00) +
+            *dGo_00 = (*dC_00) * FO::f(C_00) * FG::df(Go_00);
+            *dC_00  = (*dC_00) * FO::df(C_00) * FG::f(Go_00) +
                 dC_10 * FG::f(Gfy_10) +
                 dC_01 * FG::f(Gfx_01);
             *dGfy_00 =

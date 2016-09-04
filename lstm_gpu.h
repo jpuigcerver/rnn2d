@@ -16,6 +16,13 @@
 
 #define MAX_DIAG_N 1024
 
+#define SYNCHRONIZE_STREAMS(Tn)                 \
+  for (int z = 0; z < 4; ++z) {                 \
+    for (int e = 0; e < (Tn); ++e) {            \
+      cudaStreamSynchronize(stream[z][e]);      \
+    }                                           \
+  }
+
 /* === 2D-LSTM EQUATIONS ===
  * Input: I(y,x) is a N x K matrix
  * Output: O(y,x) is a N x D matrix
@@ -60,16 +67,16 @@ void kernel_init_Q_with_bias(
 
 template <typename T, typename FG, typename FI, typename FO>
 __global__
-void kernel_elemwise_ops(const int H, const int W, const int N, const int D,
-                         const int u, const int Un, const int Umin,
-                         const int* S, T* Q, T* O) {
-  if (thGi >= 4 * Un * N * D) return;
+void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
+                            const int t, const int Tn, const int Tmin,
+                            const int* S, T* Q, T* O) {
+  if (thGi >= 4 * Tn * N * D) return;
   const int d = thGi % D;
   const int n = (thGi / D) % N;
-  const int e = (thGi / (N * D)) % Un;
-  const int z = (thGi / (Un * N * D));
-  const int i = e + Umin;
-  const int j = u - i;
+  const int e = (thGi / (N * D)) % Tn;
+  const int z = (thGi / (Tn * N * D));
+  const int i = e + Tmin;
+  const int j = t - i;
   const int y  = (z == 0 || z == 1) ? i : H - i - 1;
   const int x  = (z == 0 || z == 2) ? j : W - j - 1;
   const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
@@ -89,6 +96,80 @@ void kernel_elemwise_ops(const int H, const int W, const int N, const int D,
     *Q_ptr(z, y, x, n, 5, d) = 0;
     *O_ptr(y, x, n, z, d) = 0;
   }
+}
+
+template <typename T, typename FG, typename FI, typename FO>
+__global__
+void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
+                            const int t, const int Tn, const int Tmin,
+                            const int* S, T* Q) {
+  if (thGi >= 4 * Tn * N * D) return;
+  const int d = thGi % D;
+  const int n = (thGi / D) % N;
+  const int e = (thGi / (N * D)) % Tn;
+  const int z = (thGi / (Tn * N * D));
+  const int i = e + Tmin;
+  const int j = t - i;
+  const int y = (z == 0 || z == 1) ? i : H - i - 1;
+  const int x = (z == 0 || z == 2) ? j : W - j - 1;
+  const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
+  const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
+  const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
+  const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
+  T* dA_00   = dQ_ptr(z, y, x, n, 0, d);
+  T* dGi_00  = dQ_ptr(z, y, x, n, 1, d);
+  T* dGo_00  = dQ_ptr(z, y, x, n, 2, d);
+  T* dGfy_00 = dQ_ptr(z, y, x, n, 3, d);
+  T* dGfx_00 = dQ_ptr(z, y, x, n, 4, d);
+  T* dC_00   = dQ_ptr(z, y, x, n, 5, d);
+  const T dC_10  = (yn >= 0 && yn < H) ? *dQ_ptr(z, yn, x, n, 5, d) : 0;
+  const T dC_01  = (xn >= 0 && xn < W) ? *dQ_ptr(z, y, xn, n, 5, d) : 0;
+  const T Gfx_01 = (xn >= 0 && xn < W) ? *Q_ptr(z, y, xn, n, 4, d) : 0;
+  const T Gfy_10 = (yn >= 0 && yn < H) ? *Q_ptr(z, yn, x, n, 3, d) : 0;
+  const T C_10   = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
+  const T C_01   = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
+  const T C_00   = *Q_ptr(z, y, x, n, 5, d);
+  const T Gfx_00 = *Q_ptr(z, y, x, n, 4, d);
+  const T Gfy_00 = *Q_ptr(z, y, x, n, 3, d);
+  const T Go_00  = *Q_ptr(z, y, x, n, 2, d);
+  const T Gi_00  = *Q_ptr(z, y, x, n, 1, d);
+  const T A_00   = *Q_ptr(z, y, x, n, 0, d);
+  if (y < S[2 * n] && x < S[2 * n + 1]) {
+    *dGo_00 = (*dC_00) * FO::f(C_00) * FG::df(Go_00);
+    *dC_00  = (*dC_00) * FO::df(C_00) * FG::f(Go_00) +
+        dC_10 * FG::f(Gfy_10) +
+        dC_01 * FG::f(Gfx_01);    
+    *dGfy_00 =
+        (yp >= 0 && yp < H) ? (*dC_00) * C_10 * FG::df(Gfy_00) : 0;
+    *dGfx_00 =
+        (xp >= 0 && xp < W) ? (*dC_00) * C_01 * FG::df(Gfx_00) : 0;
+    *dGi_00 = (*dC_00) * FI::f(A_00) * FG::df(Gi_00);
+    *dA_00  = (*dC_00) * FI::df(A_00) * FG::f(Gi_00);
+  } else {
+    *dA_00   = 0;
+    *dGi_00  = 0;
+    *dGo_00  = 0;
+    *dGfy_00 = 0;
+    *dGfx_00 = 0;
+    *dC_00   = 0;
+  }
+}
+
+template <typename T>
+__global__
+void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
+                          const int t, const int Tn, const int Tmin,
+                          const T* dO, T* dQ) {
+  if (thGi >= 4 * Tn * N * D) return;
+  const int d = thGi % D;
+  const int n = (thGi / D) % N;
+  const int e = (thGi / (N * D)) % Tn;
+  const int z = (thGi / (Tn * N * D));
+  const int i = e + Tmin;
+  const int j = t - i;
+  const int y = (z == 0 || z == 1) ? i : H - i - 1;
+  const int x = (z == 0 || z == 2) ? j : W - j - 1;
+  *dQ_ptr(z, y, x, n, 5, d) = *dO_ptr(y, x, n, z, d);
 }
 
 /* 2D-LSTM forward pass running on the CPU
@@ -131,23 +212,21 @@ void lstm_2d_fw_gpu(const int H, const int W, const int N, const int K,
   }
 
   // Synchronize streams
-  for (int z = 0; z < 4; ++z)
-    cudaStreamSynchronize(stream[z][0]);
-
+  SYNCHRONIZE_STREAMS(1);
 
   // Process the image diagonal-wise (there are H + W - 1 diagonals to process)
-  for (int u = 0; u < H + W - 1; ++u) {
+  for (int t = 0; t < H + W - 1; ++t) {
     // Compute number of elements in the u-th diagonal
-    const int Umin = std::max(0, u - W + 1);
-    const int Umax = std::min(u, H - 1);
-    const int Un   = (Umax - Umin) + 1;
+    const int Tmin = std::max(0, t - W + 1);
+    const int Tmax = std::min(t, H - 1);
+    const int Tn   = (Tmax - Tmin) + 1;
 
     for (int z = 0; z < 4; ++z) {
-      for (int e = 0; e < Un; ++e) {
+      for (int e = 0; e < Tn; ++e) {
         cublasSetStream(handle, stream[z][e]);
         // (y, x) coordinates of the e-th element in the z-th diagonal.
-        const int i = e + Umin;
-        const int j = u - i;
+        const int i = e + Tmin;
+        const int j = t - i;
         const int y  = (z == 0 || z == 1) ? i : H - i - 1;
         const int x  = (z == 0 || z == 2) ? j : W - j - 1;
         const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
@@ -169,14 +248,10 @@ void lstm_2d_fw_gpu(const int H, const int W, const int N, const int K,
         }
       }
     }
-    for (int z = 0; z < 4; ++z) {
-      for (int e = 0; e < Un; ++e) {
-        cudaStreamSynchronize(stream[z][e]);
-      }
-    }
+    SYNCHRONIZE_STREAMS(Tn);
 
-    kernel_elemwise_ops<T, FG, FI, FO><<<DIV_UP(4 * Un * N * D, 512), 512>>>(
-        H, W, N, D, u, Un, Umin, S, Q, O);
+    kernel_fw_elemwise_ops<T, FG, FI, FO><<<DIV_UP(4 * Tn * N * D, 512), 512>>>(
+        H, W, N, D, t, Tn, Tmin, S, Q, O);
   }
 
   for (int z = 0; z < 4; ++z) {
@@ -209,7 +284,63 @@ void lstm_2d_bw_gpu(const int H, const int W, const int N, const int K,
                     const int D, const T* I, const int* S, const T* P,
                     const T* O, const T* Q, const T* dO,
                     T* dQ, T* dI, T* dP) {
+  // Prepare cublas handler and streams
+  cublasHandle_t handle;
+  cublasCreate(&handle);  // TODO: check for errors
+  cudaStream_t stream[4][MAX_DIAG_N];
+  for (int z = 0; z < 4; ++z) {
+    for (int e = 0; e < MAX_DIAG_N; ++e)
+      cudaStreamCreate(&stream[z][e]);  // TODO: check for errors
+  }
 
+  // Process the image diagonal-wise, in backwards order (there are H + W - 1
+  // diagonals to process)
+  for (int t = H + W - 2; t >= 0; --t) {
+    // Compute number of elements in the diagonal
+    const int Tmin = std::max(0, t - W + 1);
+    const int Tmax = std::min(t, H - 1);
+    const int Tn   = (Tmax - Tmin) + 1;
+
+    kernel_copy_dO_to_dC<T><<<DIV_UP(4 * Tn * N * D, 512), 512>>>(
+        H, W, N, D, t, Tn, Tmin, dO, dQ);
+
+    for (int z = 0; z < 4; ++z) {
+      for (int e = 0; e < Tn; ++e) {
+        cublasSetStream(handle, stream[z][e]);
+        const int i = e + Tmin;
+        const int j = t - i;
+        const int y  = (z == 0 || z == 1) ? i : H - i - 1;
+        const int x  = (z == 0 || z == 2) ? j : W - j - 1;
+        const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
+        const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
+        const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
+        const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
+        if (yn >= 0 && yn < H) {
+          gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
+                      1.0, dQ_ptr(z, yn, x, 0, 0, 0), 6 * D,
+                      Ry_ptr(z, 0, 0, 0), 5 * D,
+                      1.0, dQ_ptr(z, x, y, 0, 5, 0), 6 * D);
+        }
+        if (xn >= 0 && xn < W) {
+          gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
+                      1.0, dQ_ptr(z, y, xn, 0, 0, 0), 6 * D,
+                      Rx_ptr(z, 0, 0, 0), 5 * D,
+                      1.0, dQ_ptr(z, x, y, 0, 5, 0), 6 * D);
+        }
+      }
+    }
+    SYNCHRONIZE_STREAMS(Tn);
+
+    kernel_bw_elemwise_ops<T, FG, FI, FO><<<DIV_UP(4 * Tn * N * D, 512), 512>>>(
+        H, W, N, D, t, Tn, Tmin, S, Q);
+  }
+
+
+  for (int z = 0; z < 4; ++z) {
+    for (int e = 0; e < MAX_DIAG_N; ++e)
+      cudaStreamDestroy(stream[z][e]);  // TODO: check for errors
+  }
+  cublasDestroy(handle);  // TODO: check for errors
 }
 
 #endif  // RNN2D_LSTM_CPU_H_

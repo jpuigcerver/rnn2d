@@ -24,6 +24,11 @@ inline cublasStatus_t gemm_gpu(
     int m, int n, int k, T alpha, const T* A, int lda, const T* B, int ldb,
     T beta, T* C, int ldc);
 
+// Copy matrix with strides: B[i * ldb + j] = A[i * ldb + j]
+template <typename T>
+void copym_gpu(const int m, const int n, const T* A, const int lda,
+               T* B, const int ldb, cudaStream_t stream = 0);
+
 
 /*****************************************************************************
  ** IMPLEMENTATIONS
@@ -55,5 +60,17 @@ inline cublasStatus_t gemm_gpu<__half>(
   return cublasHgemm(handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta,
                      C, ldc);
 }
+
+template <>
+void copym_gpu<float>(const int m, const int n, const float* A, const int lda,
+                      float* B, const int ldb, cudaStream_t stream);
+
+template <>
+void copym_gpu<double>(const int m, const int n, const double* A, const int lda,
+                       double* B, const int ldb, cudaStream_t stream);
+
+template <>
+void copym_gpu<__half>(const int m, const int n, const __half* A, const int lda,
+                       __half* B, const int ldb, cudaStream_t stream);
 
 #endif  // RNN2D_MATH_GPU_H_
