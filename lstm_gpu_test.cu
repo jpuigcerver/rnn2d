@@ -278,14 +278,15 @@ void test_backward() {
       gpu_O.data().get(), gpu_Q.data().get(), gpu_dO.data().get(),
       gpu_dQ.data().get(), gpu_dI.data().get(), gpu_dP.data().get());
 
-
   // Check dJ/dI
   const T sum_dI = thrust::reduce(gpu_dI.begin(), gpu_dI.end());
-  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dI<T>(), sum_dI, 1E-5));
+  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dI<T>(), sum_dI, 1E-5))
+      << "Expected = " << expected_sum_dI<T>() << " vs. actual = " << sum_dI;
 
   // Check dJ/dP
   const T sum_dP = thrust::reduce(gpu_dP.begin(), gpu_dP.end());
-  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dP<T>(), sum_dP, 1E-5));
+  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dP<T>(), sum_dP, 1E-5))
+      << "Expected = " << expected_sum_dP<T>() << " vs. actual = " << sum_dP;
 }
 
 TEST(lstm_gpu_test, forward) {

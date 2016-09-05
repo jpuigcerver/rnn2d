@@ -20,6 +20,11 @@ inline void gemm_cpu(
     char opA, char opB, int m, int n, int k, T alpha,
     const T* A, int lda, const T* B, int ldb, T beta, T* C, int ldc);
 
+template<typename T>
+inline void gemv_cpu(
+    char op, int m, int n, T alpha, const T* A, int lda, const T* x, int incx,
+    T beta, T* y, int incy);
+
 
 /*****************************************************************************
  ** IMPLEMENTATIONS
@@ -31,6 +36,10 @@ extern "C" {
               int*, const float*, int*, float*, float*, int*);
   void dgemm_(char*, char*, int*, int*, int*, double*, const double*,
               int*, const double*, int*, double*, double*, int*);
+  void sgemv_(char*, int*, int*, float*, const float*, int*, const float*,
+              int*, float*, float*, int*);
+  void dgemv_(char*, int*, int*, double*, const double*, int*, const double*,
+              int*, double*, double*, int*);
 }
 
 template <>
@@ -47,6 +56,22 @@ inline void gemm_cpu<double>(
     const double* A, int lda, const double* B, int ldb, double beta,
     double* C, int ldc) {
   dgemm_(&opB, &opA, &n, &m, &k, &alpha, B, &ldb, A, &lda, &beta, C, &ldc);
+}
+
+template <>
+inline void gemv_cpu<float>(
+    char op, int m, int n, float alpha, const float* A, int lda,
+    const float* x, int incx, float beta, float* y, int incy) {
+  op = op == 'N' ? 'T' : 'N';
+  sgemv_(&op, &n, &m, &alpha, A, &lda, x, &incx, &beta, y, &incy);
+}
+
+template <>
+inline void gemv_cpu<double>(
+    char op, int m, int n, double alpha, const double* A, int lda,
+    const double* x, int incx, double beta, double* y, int incy) {
+  op = op == 'N' ? 'T' : 'N';
+  dgemv_(&op, &n, &m, &alpha, A, &lda, x, &incx, &beta, y, &incy);
 }
 
 #endif  // RNN2D_MATH_CPU_H_

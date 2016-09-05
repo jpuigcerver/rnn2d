@@ -24,10 +24,10 @@ inline cublasStatus_t gemm_gpu(
     int m, int n, int k, T alpha, const T* A, int lda, const T* B, int ldb,
     T beta, T* C, int ldc);
 
-// Copy matrix with strides: B[i * ldb + j] = A[i * ldb + j]
 template <typename T>
-void copym_gpu(const int m, const int n, const T* A, const int lda,
-               T* B, const int ldb, cudaStream_t stream = 0);
+inline cublasStatus_t gemv_gpu(
+    cublasHandle_t handle, cublasOperation_t op, int m, int n, T alpha,
+    const T* A, int lda, const T* x, int incx, T beta, T* y, int incy);
 
 
 /*****************************************************************************
@@ -62,15 +62,33 @@ inline cublasStatus_t gemm_gpu<__half>(
 }
 
 template <>
-void copym_gpu<float>(const int m, const int n, const float* A, const int lda,
-                      float* B, const int ldb, cudaStream_t stream);
+inline cublasStatus_t gemv_gpu<float>(
+    cublasHandle_t handle, cublasOperation_t op, int m, int n, float alpha,
+    const float* A, int lda, const float* x, int incx, float beta, float* y,
+    int incy) {
+  op = op == CUBLAS_OP_N ? CUBLAS_OP_T : CUBLAS_OP_N;
+  return cublasSgemv(handle, op, n, m, &alpha, A, lda, x, incx, &beta, y, incy);
+}
 
 template <>
-void copym_gpu<double>(const int m, const int n, const double* A, const int lda,
-                       double* B, const int ldb, cudaStream_t stream);
+inline cublasStatus_t gemv_gpu<double>(
+    cublasHandle_t handle, cublasOperation_t op, int m, int n, double alpha,
+    const double* A, int lda, const double* x, int incx, double beta, double* y,
+    int incy) {
+  op = op == CUBLAS_OP_N ? CUBLAS_OP_T : CUBLAS_OP_N;
+  return cublasDgemv(handle, op, n, m, &alpha, A, lda, x, incx, &beta, y, incy);
+}
 
+// TODO: Add custom support for gemv for __half type, cublasHgemv does not
+// exist with CUDA 7.5...
+/*
 template <>
-void copym_gpu<__half>(const int m, const int n, const __half* A, const int lda,
-                       __half* B, const int ldb, cudaStream_t stream);
+inline cublasStatus_t gemv_gpu<__half>(
+    cublasHandle_t handle, cublasOperation_t op, int m, int n, __half alpha,
+    const __half* A, int lda, const __half* x, int incx, __half beta, __half* y,
+    int incy) {
+  op = op == CUBLAS_OP_N ? CUBLAS_OP_T : CUBLAS_OP_N;
+  return cublasHgemv(handle, op, n, m, &alpha, A, lda, x, incx, &beta, y, incy);
+}*/
 
 #endif  // RNN2D_MATH_GPU_H_

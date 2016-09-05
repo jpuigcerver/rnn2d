@@ -5,7 +5,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
-#include "lstm_cpu.h"
+#include "lstm_cpu2.h"
 
 static std::default_random_engine RNG = std::default_random_engine();
 
@@ -267,7 +267,6 @@ void test_backward() {
   // Forward pass
   lstm_2d_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, I<T>().data(), S, P<T>().data(), O.data(), Q.data());
-
   // Backward pass
   lstm_2d_bw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, I<T>().data(), S, P<T>().data(), O.data(), Q.data(),
@@ -275,11 +274,13 @@ void test_backward() {
 
   // Check dJ/dI
   const T sum_dI = std::accumulate(dI.begin(), dI.end(), static_cast<T>(0));
-  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dI<T>(), sum_dI, 1E-5));
+  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dI<T>(), sum_dI, 1E-5))
+      << "Expected = " << expected_sum_dI<T>() << " vs. actual = " << sum_dI;
 
   // Check dJ/dP
   const T sum_dP = std::accumulate(dP.begin(), dP.end(), static_cast<T>(0));
-  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dP<T>(), sum_dP, 1E-5));
+  EXPECT_TRUE(FloatRelativeEq<T>(expected_sum_dP<T>(), sum_dP, 1E-5))
+      << "Expected = " << expected_sum_dP<T>() << " vs. actual = " << sum_dP;
 }
 
 TEST(lstm_cpu_test, forward) {
