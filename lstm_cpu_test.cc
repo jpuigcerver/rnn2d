@@ -5,7 +5,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
-#include "lstm_cpu2.h"
+#include "lstm_cpu.h"
 
 static std::default_random_engine RNG = std::default_random_engine();
 
