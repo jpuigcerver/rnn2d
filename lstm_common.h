@@ -1,6 +1,33 @@
 #ifndef RNN2D_LSTM_COMMON_H_
 #define RNN2D_LSTM_COMMON_H_
 
+/* === 2D-LSTM EQUATIONS ===
+ * Input: I(y,x) is a N x K matrix
+ * Output: O(y,x) is a N x D matrix
+ *
+ * A(y,x)   = I(y,x) * W_a  + O(y-1,x) * R_ay  + O(y,x-1) * R_ax  + B_a
+ * Gi(y,x)  = I(y,x) * W_i  + O(y-1,x) * R_iy  + O(y,x-1) * R_ix  + B_i
+ * Go(y,x)  = I(y,x) * W_o  + O(y-1,x) * R_oy  + O(y,x-1) * R_ox  + B_o
+ * Gfy(y,x) = I(y,x) * W_fy + O(y-1,x) * R_fyy + O(y,x-1) * R_fyx + B_fy
+ * Gfx(y,x) = I(y,x) * W_fx + O(y-1,x) * R_fxy + O(y,x-1) * R_fxx + B_fx
+ * C(y,x)   = s(Gi(y,x))  · f_i(A(y,x)) +
+ *            s(Gfy(y,x)) · C(y-1,x)    +
+ *            s(Gfx(y,x)) · C(y,x-1)
+ * O(y,x)   = s(Go(y,x))  · f_o(C(y,x))
+ *
+ * Operator (*) denotes matrix multiplication, operator (·) is element-wise
+ * multiplication (or Hadamard product), s(z) is the sigmoid function and,
+ * f_i/f_o are any two differentiable activation functions.
+ *
+ * The previous equations decribe the output when the image is processed in
+ * the top-left direction. The equations in the other directions are similar,
+ * but the offset for the recurrent connections in each dimension changes:
+ *   Top-Left origin:     y,x-offsets = -1, -1
+ *   Top-Right origin:    y,x-offsets = -1, +1
+ *   Bottom-Left origin:  y,x-offsets = +1, -1
+ *   Bottom-Right origin: y,x-offsets = +1, +1
+ */
+
 // Useful defines to access specific addresses in the input, output and
 // internal state tensors.
 #define I_ptr(y, x, n, d)                       \

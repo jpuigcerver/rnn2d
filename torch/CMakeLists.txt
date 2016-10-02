@@ -1,0 +1,34 @@
+FIND_PACKAGE(Torch)
+
+IF (Torch_FOUND)
+  MESSAGE(STATUS "Building Torch bindings")
+  INCLUDE_DIRECTORIES(
+    ${Torch_INSTALL_INCLUDE}
+    ${Torch_INSTALL_INCLUDE}/TH
+    ${Torch_INSTALL_INCLUDE}/THC
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+
+  ADD_LIBRARY(rnn2d_torch MODULE
+    binding.cc binding.h
+    utils.c utils.h)
+  TARGET_LINK_LIBRARIES(rnn2d_torch luajit luaT TH)
+
+  SET(REQUIRE_CUNN "")
+  IF (CUDA_FOUND AND USE_CUDA)
+    CUDA_ADD_CUBLAS_TO_TARGET(rnn2d_torch)
+    TARGET_LINK_LIBRARIES(rnn2d_torch rnn2d THC ${CUDA_LIBRARIES})
+    SET(REQUIRE_CUNN "require 'cunn'")
+  ENDIF()
+
+  INSTALL(TARGETS rnn2d_torch
+    RUNTIME DESTINATION "${Torch_INSTALL_BIN}"
+    LIBRARY DESTINATION "${Torch_INSTALL_LIB}/lua/5.1"
+    ARCHIVE DESTINATION "${Torch_INSTALL_LIB}/lua/5.1")
+
+  CONFIGURE_FILE(init.lua ${CMAKE_CURRENT_BINARY_DIR}/init.lua)
+
+  INSTALL(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/init.lua
+    LSTM.lua
+    DESTINATION "${Torch_INSTALL_SHARE}/lua/5.1/rnn2d")
+ENDIF()

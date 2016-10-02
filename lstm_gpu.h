@@ -1,19 +1,18 @@
-#ifndef RNN2D_LSTM_CPU_H_
-#define RNN2D_LSTM_CPU_H_
+#ifndef RNN2D_LSTM_GPU_H_
+#define RNN2D_LSTM_GPU_H_
 
+#include <algorithm>
 #include <cmath>
 #include <cassert>
 #include <cstdio>
 
 #include "activation.h"
 #include "lstm_common.h"
+#include "lstm_gpu_kernels.h"
 #include "math_gpu.h"
 #include "utils.h"
-#include <thrust/device_vector.h>
 
-#ifndef __CUDACC__
-#error "This should be compiled with nvcc!"
-#endif
+#define MAX_STREAMS 1024
 
 #define STREAMS_CREATE(N)                       \
   for (int z = 0; z < 4; ++z) {                 \
@@ -36,181 +35,32 @@
     }                                           \
   }
 
-/* === 2D-LSTM EQUATIONS ===
- * Input: I(y,x) is a N x K matrix
- * Output: O(y,x) is a N x D matrix
- *
- * A(y,x)   = I(y,x) * W_a  + O(y-1,x) * R_ay  + O(y,x-1) * R_ax  + B_a
- * Gi(y,x)  = I(y,x) * W_i  + O(y-1,x) * R_iy  + O(y,x-1) * R_ix  + B_i
- * Go(y,x)  = I(y,x) * W_o  + O(y-1,x) * R_oy  + O(y,x-1) * R_ox  + B_o
- * Gfy(y,x) = I(y,x) * W_fy + O(y-1,x) * R_fyy + O(y,x-1) * R_fyx + B_fy
- * Gfx(y,x) = I(y,x) * W_fx + O(y-1,x) * R_fxy + O(y,x-1) * R_fxx + B_fx
- * C(y,x)   = s(Gi(y,x))  · f_i(A(y,x)) +
- *            s(Gfy(y,x)) · C(y-1,x)    +
- *            s(Gfx(y,x)) · C(y,x-1)
- * O(y,x)   = s(Go(y,x))  · f_o(C(y,x))
- *
- * Operator (*) denotes matrix multiplication, operator (·) is element-wise
- * multiplication (or Hadamard product), s(z) is the sigmoid function and,
- * f_i/f_o are any two differentiable activation functions.
- *
- * The previous equations decribe the output when the image is processed in
- * the top-left direction. The equations in the other directions are similar,
- * but the offset for the recurrent connections in each dimension changes:
- *   Top-Left origin:     y,x-offsets = -1, -1
- *   Top-Right origin:    y,x-offsets = -1, +1
- *   Bottom-Left origin:  y,x-offsets = +1, -1
- *   Bottom-Right origin: y,x-offsets = +1, +1
+
+/* 2D-LSTM forward pass running on the GPU
+ * H -> maximum height
+ * W -> maximum width
+ * N -> batch size
+ * K -> input dimensions/channels
+ * D -> output dimensions/channels
+ * I -> input data (layout: H x W x N x K)
+ * S -> input sizes (height and width of each sample, layout: N x 2)
+ * P -> parameters (size: 4 * (1 + K + D + D) * 5 * D)
+ * O -> output data (layout: H x W x N x 4 x D)
+ * Q -> gates pre-activations and cells (layout: 4 x H x W x N x 6 x D)
  */
-
-template <typename T>
-__global__
-void kernel_init_Q_with_bias(
-    const int H, const int W, const int N, const int K, const int D,
-    const T* P, T* Q) {
-  if (thGi >= 4 * H * W * N * 5 * D) return;
-  const int d = thGi % D;                      // d \in [0 ... D-1]
-  const int g = (thGi / D) % 5;                // g \in [0 ... 5]
-  const int n = (thGi / (5 * D)) % N;          // n \in [0 ... N-1]
-  const int x = (thGi / (N * 5 * D)) % W;      // x \in [0 ... W-1]
-  const int y = (thGi / (W * N * 5 * D)) % H;  // y \in [0 ... H-1]
-  const int z = (thGi / (H * W * N * 5 * D));  // z \in [0 ... 3]
-  *Q_ptr(z, y, x, n, g, d) = *B_ptr(z, g, d);
-}
-
-template <typename T, typename FG, typename FI, typename FO>
-__global__
-void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
-                            const int t, const int Tn, const int Tmin,
-                            const int* S, T* Q, T* O) {
-  if (thGi >= 4 * Tn * N * D) return;
-  const int d = thGi % D;
-  const int n = (thGi / D) % N;
-  const int e = (thGi / (N * D)) % Tn;
-  const int z = (thGi / (Tn * N * D));
-  const int i = e + Tmin;
-  const int j = t - i;
-  const int y  = (z == 0 || z == 1) ? i : H - i - 1;
-  const int x  = (z == 0 || z == 2) ? j : W - j - 1;
-  const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
-  const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
-
-  if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
-    const T f_a   = FI::f(*Q_ptr(z, y, x, n, 0, d));  // f_i(input)
-    const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 1, d));  // f_g(input gate)
-    const T f_go  = FG::f(*Q_ptr(z, y, x, n, 2, d));  // f_g(output gate)
-    const T f_gfy = FG::f(*Q_ptr(z, y, x, n, 3, d));  // f_g(forget_y gate)
-    const T f_gfx = FG::f(*Q_ptr(z, y, x, n, 4, d));  // f_g(forget_x gate)
-    const T C_10  = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
-    const T C_01  = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
-    *Q_ptr(z, y, x, n, 5, d) = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;
-    *O_ptr(y, x, n, z, d) = f_go * FO::f(*Q_ptr(z, y, x, n, 5, d));
-  } else {
-    *Q_ptr(z, y, x, n, 5, d) = 0;
-    *O_ptr(y, x, n, z, d) = 0;
-  }
-}
-
-template <typename T, typename FG, typename FI, typename FO>
-__global__
-void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
-                            const int t, const int Tn, const int Tmin,
-                            const int* S, const T* Q, T* dQ) {
-  if (thGi >= 4 * Tn * N * D) return;
-  const int d = thGi % D;
-  const int n = (thGi / D) % N;
-  const int e = (thGi / (N * D)) % Tn;
-  const int z = (thGi / (Tn * N * D));
-  const int i = e + Tmin;
-  const int j = t - i;
-  const int y = (z == 0 || z == 1) ? i : H - i - 1;
-  const int x = (z == 0 || z == 2) ? j : W - j - 1;
-  const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
-  const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
-  const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
-  const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
-  T* dA_00   = dQ_ptr(z, y, x, n, 0, d);
-  T* dGi_00  = dQ_ptr(z, y, x, n, 1, d);
-  T* dGo_00  = dQ_ptr(z, y, x, n, 2, d);
-  T* dGfy_00 = dQ_ptr(z, y, x, n, 3, d);
-  T* dGfx_00 = dQ_ptr(z, y, x, n, 4, d);
-  T* dC_00   = dQ_ptr(z, y, x, n, 5, d);
-  const T dC_10 = (yn >= 0 && yn < H) ? *dQ_ptr(z, yn, x, n, 5, d) : 0;
-  const T dC_01 = (xn >= 0 && xn < W) ? *dQ_ptr(z, y, xn, n, 5, d) : 0;
-  const T Gfx_01 = (xn >= 0 && xn < W) ? *Q_ptr(z, y, xn, n, 4, d) : 0;
-  const T Gfy_10 = (yn >= 0 && yn < H) ? *Q_ptr(z, yn, x, n, 3, d) : 0;
-  const T C_10   = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
-  const T C_01   = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
-  const T C_00   = *Q_ptr(z, y, x, n, 5, d);
-  const T Gfx_00 = *Q_ptr(z, y, x, n, 4, d);
-  const T Gfy_00 = *Q_ptr(z, y, x, n, 3, d);
-  const T Go_00  = *Q_ptr(z, y, x, n, 2, d);
-  const T Gi_00  = *Q_ptr(z, y, x, n, 1, d);
-  const T A_00   = *Q_ptr(z, y, x, n, 0, d);
-  if (S == nullptr || (y < S[2 * n] && x < S[2 * n + 1])) {
-    *dGo_00 = (*dC_00) * FO::f(C_00) * FG::df(Go_00);
-    *dC_00  = (*dC_00) * FO::df(C_00) * FG::f(Go_00) +
-        dC_10 * FG::f(Gfy_10) + dC_01 * FG::f(Gfx_01);
-    *dGfy_00 =
-        (yp >= 0 && yp < H) ? (*dC_00) * C_10 * FG::df(Gfy_00) : 0;
-    *dGfx_00 =
-        (xp >= 0 && xp < W) ? (*dC_00) * C_01 * FG::df(Gfx_00) : 0;
-    *dGi_00  = (*dC_00) * FI::f(A_00) * FG::df(Gi_00);
-    *dA_00   = (*dC_00) * FI::df(A_00) * FG::f(Gi_00);
-  } else {
-    *dA_00   = 0;
-    *dGi_00  = 0;
-    *dGo_00  = 0;
-    *dGfy_00 = 0;
-    *dGfx_00 = 0;
-    *dC_00   = 0;
-  }
-}
-
-template <typename T>
-__global__
-void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
-                          const int t, const int Tn, const int Tmin,
-                          const T* dO, T* dQ) {
-  if (thGi >= 4 * Tn * N * D) return;
-  const int d = thGi % D;
-  const int n = (thGi / D) % N;
-  const int e = (thGi / (N * D)) % Tn;
-  const int z = (thGi / (Tn * N * D));
-  const int i = e + Tmin;
-  const int j = t - i;
-  const int y = (z == 0 || z == 1) ? i : H - i - 1;
-  const int x = (z == 0 || z == 2) ? j : W - j - 1;
-  *dQ_ptr(z, y, x, n, 5, d) = *dO_ptr(y, x, n, z, d);
-}
-
-/* 2D-LSTM forward pass running on the CPU
-   H -> maximum height
-   W -> maximum width
-   N -> batch size
-   K -> input dimensions/channels
-   D -> output dimensions/channels
-   I -> input data (layout: H x W x N x K)
-   S -> input sizes (height and width of each sample, layout: N x 2)
-   P -> 4 x params (layout: [5 x D] (b) + [K x 5 x D] (iW) +
-                    [D x 5 x D] (Ry) + [D x 5 x D] (Rx))
-   O -> output data (layout: H x W x N x 4 x D)
-   Q -> gates pre-activations and cells (layout: 4 x H x W x N x 6 x D)
-*/
 template < typename T, typename FG, typename FI, typename FO >
-void lstm_2d_fw_gpu(const int H, const int W, const int N, const int K,
-                     const int D, const T* I, const int* S, const T* P,
-                     T* O, T* Q) {
-  const int NSZ = std::max(std::min(H, W), 4);
+void rnn2d_lstm_fw_gpu(const int H, const int W, const int N, const int K,
+                       const int D, const T* I, const int* S, const T* P,
+                       T* O, T* Q) {
+  const int NSZ = std::max(std::min(std::min(H, W), MAX_STREAMS), 4);
   // Prepare cublas handler and streams
   cublasHandle_t handle;
   cublasCreate(&handle);  // TODO: check for errors
-  cudaStream_t stream[4][NSZ];
+  cudaStream_t stream[4][MAX_STREAMS];
   STREAMS_CREATE(NSZ);
 
   // Initialize gates with bias
-  kernel_init_Q_with_bias<T><<<DIV_UP(4 * H * W * N * 5 * D, 512), 512>>>(
-      H, W, N, K, D, P, Q);
+  init_Q_with_bias<T>(H, W, N, K, D, P, Q);
 
   // Multiply inputs by weights.
   for (int z = 0; z < 4; ++z) {
@@ -233,7 +83,7 @@ void lstm_2d_fw_gpu(const int H, const int W, const int N, const int K,
 
     for (int z = 0; z < 4; ++z) {
       for (int e = 0; e < Tn; ++e) {
-        cublasSetStream(handle, stream[z][e]);
+        cublasSetStream(handle, stream[z][e % NSZ]);
         // (y, x) coordinates of the e-th element in the z-th diagonal.
         const int i = e + Tmin;
         const int j = t - i;
@@ -259,8 +109,7 @@ void lstm_2d_fw_gpu(const int H, const int W, const int N, const int K,
       }
     }
     STREAMS_SYNCHRONIZE(Tn);
-    kernel_fw_elemwise_ops<T, FG, FI, FO><<<DIV_UP(4 * Tn * N * D, 512), 512>>>(
-        H, W, N, D, t, Tn, Tmin, S, Q, O);
+    fw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q, O);
   }
 
   STREAMS_DESTROY(NSZ);
@@ -268,33 +117,29 @@ void lstm_2d_fw_gpu(const int H, const int W, const int N, const int K,
 }
 
 
-/* 2D-LSTM backward pass running on the CPU
-   H  -> maximum height
-   W  -> maximum width
-   N  -> batch size
-   K  -> input dimensions/channels
-   D  -> output dimensions/channels
-   I  -> input data (layout: H x W x N x K)
-   S  -> input sizes (height and width of each sample, layout: N x 2)
-   P  -> parameters 4 x (layout: [5 x D] (b) + [K x 5 x D] (iW) +
-                                 [D x 5 x D] (Ry) + [D x 5 x D] (Rx))
-   O  -> output data (layout: H x W x N x 4 x D)
-   Q  -> gates pre-activations and cells (layout: H x W x N x 6 x D)
-   dO -> derivative of the loss w.r.t the output
-   dQ -> derivative of the loss w.r.t the internal states
-   dI -> derivative of the loss w.r.t. the input
-   dP -> derivative of the loss w.r.t. the parameters
-*/
+/* 2D-LSTM backward pass running on the GPU
+ * H -> maximum height
+ * W -> maximum width
+ * N -> batch size
+ * K -> input dimensions/channels
+ * D -> output dimensions/channels
+ * I -> input data (layout: H x W x N x K)
+ * S -> input sizes (height and width of each sample, layout: N x 2)
+ * P -> parameters (size: 4 * (1 + K + D + D) * 5 * D)
+ * O -> output data (layout: H x W x N x 4 x D)
+ * Q -> gates pre-activations and cells (layout: 4 x H x W x N x 6 x D)
+ * dO -> derivative of the loss w.r.t the output
+ * dQ -> derivative of the loss w.r.t the internal states
+ */
 template <typename T, typename FG, typename FI, typename FO>
-void lstm_2d_bw_gpu(const int H, const int W, const int N, const int K,
-                    const int D, const T* I, const int* S, const T* P,
-                    const T* O, const T* Q, const T* dO,
-                    T* dQ, T* dI, T* dP) {
-  const int NSZ = std::max(std::min(H, W), 4);
+void rnn2d_lstm_bw_gpu(const int H, const int W, const int N, const int K,
+                       const int D, const T* I, const int* S, const T* P,
+                       const T* O, const T* Q, const T* dO, T* dQ) {
+  const int NSZ = std::max(std::min(std::min(H, W), MAX_STREAMS), 4);
   // Prepare cublas handler and streams
   cublasHandle_t handle;
   cublasCreate(&handle);  // TODO: check for errors
-  cudaStream_t stream[4][NSZ];
+  cudaStream_t stream[4][MAX_STREAMS];
   STREAMS_CREATE(NSZ);
 
   // Process the image diagonal-wise, in backwards order (there are H + W - 1
@@ -305,12 +150,11 @@ void lstm_2d_bw_gpu(const int H, const int W, const int N, const int K,
     const int Tmax = std::min(t, H - 1);
     const int Tn   = (Tmax - Tmin) + 1;
 
-    kernel_copy_dO_to_dC<T><<<DIV_UP(4 * Tn * N * D, 512), 512>>>(
-        H, W, N, D, t, Tn, Tmin, dO, dQ);
+    copy_dO_to_dC<T>(H, W, N, D, t, Tn, Tmin, dO, dQ);
 
     for (int z = 0; z < 4; ++z) {
       for (int e = 0; e < Tn; ++e) {
-        cublasSetStream(handle, stream[z][e]);
+        cublasSetStream(handle, stream[z][e % NSZ]);
         const int i = e + Tmin;
         const int j = t - i;
         const int y  = (z == 0 || z == 1) ? i : H - i - 1;
@@ -332,29 +176,57 @@ void lstm_2d_bw_gpu(const int H, const int W, const int N, const int K,
       }
     }
     STREAMS_SYNCHRONIZE(Tn);
-    kernel_bw_elemwise_ops<T, FG, FI, FO><<<DIV_UP(4 * Tn * N * D, 512), 512>>>(
-        H, W, N, D, t, Tn, Tmin, S, Q, dQ);
+    bw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q, dQ);
   }
 
-  cudaMemset(dP, 0, sizeof(T) * 4 * (1 + K + D + D) * 5 * D);
+  STREAMS_DESTROY(NSZ);
+  cublasDestroy(handle);  // TODO: check for errors
+}
+
+template <typename T>
+void rnn2d_lstm_bw_input_gpu(const int H, const int W, const int N, const int K,
+                             const int D, const T* P, const T* dQ,
+                             const T scale, T* dI) {
+  // dJ/dI(y,x)
+  cublasHandle_t handle;
+  cublasCreate(&handle);  // TODO: check for errors
+  for (int z = 0; z < 4; ++z) {
+    gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, H * W * N, K, 5 * D,
+                scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
+                W_ptr(z, 0, 0, 0), 5 * D,
+                1.0, dI, K);
+  }
+  cublasDestroy(handle);  // TODO: check for errors
+}
+
+template <typename T>
+void rnn2d_lstm_bw_params_gpu(
+    const int H, const int W, const int N, const int K, const int D,
+    const T* I, const T* O, const T* dQ, const T scale, T* dP) {
+  cublasHandle_t handle;
+  cublasCreate(&handle);  // TODO: check for errors
+  cudaStream_t stream[4][4];
+  STREAMS_CREATE(4);
 
   // dJ/db
-  const thrust::device_vector<T> vOnes(H * W * N, 1);
+  T* vOnes = nullptr;
+  cudaMalloc(&vOnes, sizeof(T) * H * W * N);
+  fill<T>(H * W * N, vOnes, 1);
   for (int z = 0; z < 4; ++z) {
     cublasSetStream(handle, stream[z][0]);
     gemv_gpu<T>(handle, CUBLAS_OP_T, H * W * N, 5 * D,
-                1.0, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                vOnes.data().get(), 1,
-                0.0, dB_ptr(z, 0, 0), 1);
+                scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
+                vOnes, 1,
+                1.0, dB_ptr(z, 0, 0), 1);
   }
 
   // dJ/dW
   for (int z = 0; z < 4; ++z) {
     cublasSetStream(handle, stream[z][1]);
     gemm_gpu<T>(handle, CUBLAS_OP_T, CUBLAS_OP_N, K, 5 * D, H * W * N,
-                1.0, I, K,
+                scale, I, K,
                 dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                0.0, dW_ptr(z, 0, 0, 0), 5 * D);
+                1.0, dW_ptr(z, 0, 0, 0), 5 * D);
   }
 
   // dJ/dRy
@@ -365,7 +237,7 @@ void lstm_2d_bw_gpu(const int H, const int W, const int N, const int K,
         const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
         if (yp >= 0 && yp < H) {
           gemm_gpu<T>(handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
-                      1.0, O_ptr(yp, x, 0, z, 0), 4 * D,
+                      scale, O_ptr(yp, x, 0, z, 0), 4 * D,
                       dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
                       1.0, dRy_ptr(z, 0, 0, 0), 5 * D);
         }
@@ -381,7 +253,7 @@ void lstm_2d_bw_gpu(const int H, const int W, const int N, const int K,
         const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
         if (xp >= 0 && xp < W) {
           gemm_gpu<T>(handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
-                      1.0, O_ptr(y, xp, 0, z, 0), 4 * D,
+                      scale, O_ptr(y, xp, 0, z, 0), 4 * D,
                       dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
                       1.0, dRx_ptr(z, 0, 0, 0), 5 * D);
         }
@@ -389,18 +261,9 @@ void lstm_2d_bw_gpu(const int H, const int W, const int N, const int K,
     }
   }
 
-  // dJ/dI(y,x)
-  cublasSetStream(handle, 0);
-  for (int z = 0; z < 4; ++z) {
-    gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, H * W * N, K, 5 * D,
-                1.0, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                W_ptr(z, 0, 0, 0), 5 * D,
-                (z == 0 ? 0 : 1), dI, K);
-  }
-
   STREAMS_SYNCHRONIZE(4);
-  STREAMS_DESTROY(NSZ);
+  STREAMS_DESTROY(4);
   cublasDestroy(handle);  // TODO: check for errors
 }
 
-#endif  // RNN2D_LSTM_CPU_H_
+#endif  // RNN2D_LSTM_GPU_H_

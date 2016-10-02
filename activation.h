@@ -19,6 +19,10 @@ class Linear {
   static inline T df(const T& x) {
     return 1;
   }
+  __host__ __device__
+  static inline T df(const T& x, const T& fx) {
+    return 1;
+  }
 };
 
 template <typename T>
@@ -31,6 +35,10 @@ class Sigmoid {
   __host__ __device__
   static inline T df(const T& x) {
     const T fx = f(x);
+    return (1 - fx) * fx;
+  }
+  __host__ __device__
+  static inline T df(const T& x, const T& fx) {
     return (1 - fx) * fx;
   }
 };
@@ -47,6 +55,10 @@ class Tanh {
     const T fx = f(x);
     return 1 - fx * fx;
   }
+  __host__ __device__
+  static inline T df(const T& x, const T& fx) {
+    return 1 - fx * fx;
+  }
 };
 
 template <typename T>
@@ -58,6 +70,10 @@ class ReLU {
   }
   __host__ __device__
   static inline T df(const T& x) {
+    return (x > 0 ? 1 : 0);
+  }
+  __host__ __device__
+  static inline T df(const T& x, const T& fx) {
     return (x > 0 ? 1 : 0);
   }
 };

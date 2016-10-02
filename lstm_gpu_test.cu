@@ -249,7 +249,7 @@ void test_forward(const M& matcher) {
   const thrust::device_vector<int> gpuS(S);
   thrust::device_vector<T> gpuQ(4 * H * W * N * 6 * D);
   thrust::device_vector<T> gpuO(H * W * N * 4 * D);
-  lstm_2d_fw_gpu< T, Linear<T>, Linear<T>, Linear<T> >(
+  rnn2d_lstm_fw_gpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, gpuI.data().get(), gpuS.data().get(), gpuP.data().get(),
       gpuO.data().get(), gpuQ.data().get());
   thrust::host_vector<T> cpuO(gpuO);
@@ -269,14 +269,22 @@ void test_backward() {
   thrust::device_vector<T> gpu_dI(gpu_I.size());
   thrust::device_vector<T> gpu_dP(gpu_P.size());
   // Forward pass
-  lstm_2d_fw_gpu< T, Linear<T>, Linear<T>, Linear<T> >(
+  rnn2d_lstm_fw_gpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, gpu_I.data().get(), gpu_S.data().get(), gpu_P.data().get(),
       gpu_O.data().get(), gpu_Q.data().get());
   // Backward pass
-  lstm_2d_bw_gpu< T, Linear<T>, Linear<T>, Linear<T> >(
+  rnn2d_lstm_bw_gpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, gpu_I.data().get(), gpu_S.data().get(), gpu_P.data().get(),
       gpu_O.data().get(), gpu_Q.data().get(), gpu_dO.data().get(),
-      gpu_dQ.data().get(), gpu_dI.data().get(), gpu_dP.data().get());
+      gpu_dQ.data().get());
+  // Get gradInput
+  rnn2d_lstm_bw_input_gpu<T>(
+      H, W, N, K, D, gpu_P.data().get(), gpu_dQ.data().get(),
+      static_cast<T>(1.0), gpu_dI.data().get());
+  // Get gradParams
+  rnn2d_lstm_bw_params_gpu<T>(
+      H, W, N, K, D, gpu_I.data().get(), gpu_O.data().get(),
+      gpu_dQ.data().get(), static_cast<T>(1.0), gpu_dP.data().get());
 
   // Check dJ/dI
   const T sum_dI = thrust::reduce(gpu_dI.begin(), gpu_dI.end());

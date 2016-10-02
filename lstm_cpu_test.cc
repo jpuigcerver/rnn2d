@@ -247,7 +247,7 @@ void test_forward(const M& matcher) {
   std::vector<T> Q(4 * H * W * N * 6 * D);
   // Output
   std::vector<T> O(H * W * N * 4 * D);
-  lstm_2d_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
+  rnn2d_lstm_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, I<T>().data(), S, P<T>().data(), O.data(), Q.data());
   EXPECT_THAT(O, Pointwise(matcher, expected_O<T>()));
 }
@@ -265,12 +265,19 @@ void test_backward() {
   std::vector<T> dP(P<T>().size());
 
   // Forward pass
-  lstm_2d_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
+  rnn2d_lstm_fw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, I<T>().data(), S, P<T>().data(), O.data(), Q.data());
   // Backward pass
-  lstm_2d_bw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
+  rnn2d_lstm_bw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
       H, W, N, K, D, I<T>().data(), S, P<T>().data(), O.data(), Q.data(),
-      dO<T>().data(), dQ.data(), dI.data(), dP.data());
+      dO<T>().data(), dQ.data());
+  // Get gradInput
+  rnn2d_lstm_bw_input_cpu<T>(
+      H, W, N, K, D, P<T>().data(), dQ.data(), static_cast<T>(1.0), dI.data());
+  // Get gradParams
+  rnn2d_lstm_bw_params_cpu<T>(
+      H, W, N, K, D, I<T>().data(), O.data(), dQ.data(), static_cast<T>(1.0),
+      dP.data());
 
   // Check dJ/dI
   const T sum_dI = std::accumulate(dI.begin(), dI.end(), static_cast<T>(0));
