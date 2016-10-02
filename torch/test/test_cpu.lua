@@ -1,19 +1,7 @@
 require 'rnn2d'
 
-
-local rnn2dtest = torch.TestSuite()
+local lstm2dtest = torch.TestSuite()
 local jac = nn.Jacobian
-
-local function testLayer(layer, input, gradOutput)
-  local res = {}
-  res.output = layer:forward(cast(input))
-  layer:zeroGradParameters()
-  res.gradInput = layer:backward(cast(input), cast(gradOutput), scale)
-end
-
-local mytester = torch.Tester()
-mytester:add(rnn2dtest)
-mytester:run()
 
 local H, W, N, K, D = 2, 3, 2, 3, 2
 local lstm2d = rnn2d.LSTM(K, D)
@@ -93,15 +81,38 @@ local gradOutput = torch.DoubleTensor({
     0.80,  0.24,  0.40,  0.49, -0.93,  0.09})
 gradOutput:resize(H, W, N, 4 * D)
 
+function fb_layer(layer, input, gradOutput)
+  layer:zeroGradParameters()
+  local output = layer:forward(input)
+  local gradInput = layer:backward(input, gradOutput)
+end
 
-input = input:float()
-gradOutput = gradOutput:float()
-lstm2d:float()
-lstm2d:zeroGradParameters()
+function lstm2dtest.testFloat()
+  input = input:float()
+  gradOutput = gradOutput:float()
+  lstm2d:float()
+  fb_layer(lstm2d, input, gradOutput)
+end
 
---print(jac.testJacobian(lstm2d, input))
-local output = lstm2d:forward(input)
-local gradInput = lstm2d:backward(input, gradOutput)
+function lstm2dtest.testDouble()
+  input = input:float()
+  gradOutput = gradOutput:float()
+  lstm2d:float()
+  fb_layer(lstm2d, input, gradOutput)
+end
+
+function lstm2dtest.testCudaFloat()
+  input = input:float()
+  gradOutput = gradOutput:float()
+  lstm2d:float()
+  fb_layer(lstm2d, input, gradOutput)
+end
+
+
+
+
+os.exit(1)
+
 
 print(string.format('sum_I  = %.18f', input:sum()))
 print(string.format('sum_P  = %.18f', lstm2d.weight:sum()))
@@ -113,16 +124,6 @@ print(string.format('sum_dI = %.18f', gradInput:sum()))
 print(string.format('sum_dP = %.18f', lstm2d.gradWeight:sum()))
 
 
-os.exit(1)
-for y=1,H do
-  for x=1,W do
-    io.write(string.format('O(%d,%d,.,.) =\n', y, x))
-    for n=1,N do
-      for d=1,4*D do
-	io.write(string.format(' % .4f', output[{y,x,n,d}]))
-      end
-      io.write('\n')
-    end
-    io.write('\n')
-  end
-end
+local mytester = torch.Tester()
+mytester:add(lstm2dtest)
+mytester:run()

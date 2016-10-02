@@ -128,33 +128,6 @@ void rnn2d_lstm_fw_cpu(const int H, const int W, const int N, const int K,
       }
     }
   }
-  /*
-  for (int z = 0; z < 4; ++z)
-    for (int y = 0; y < H; ++y)
-      for (int x = 0; x < W; ++x) {
-        printf("Q(%d,%d,%d,.,.,.) =\n", z, y, x);
-        for (int n = 0; n < N; ++n) {
-          for (int g = 0; g < 6; ++g)
-            for (int d = 0; d < D; ++d) {
-              printf(" % .4f", *Q_ptr(z, y, x, n, g, d));
-            }
-          printf("\n");
-        }
-        printf("\n");
-      }
-
-  for (int y = 0; y < H; ++y)
-    for (int x = 0; x < W; ++x) {
-      printf("O(%d,%d,.,.,.) =\n", y, x);
-      for (int n = 0; n < N; ++n) {
-        for (int z = 0; z < 4; ++z)
-          for (int d = 0; d < D; ++d) {
-            printf(" % .4f", *O_ptr(y, x, n, z, d));
-          }
-        printf("\n");
-      }
-      printf("\n");
-    } */
 }
 
 
@@ -176,19 +149,6 @@ template <typename T, typename FG, typename FI, typename FO>
 void rnn2d_lstm_bw_cpu(const int H, const int W, const int N, const int K,
                        const int D, const T* I, const int* S, const T* P,
                        const T* O, const T* Q, const T* dO, T* dQ) {
-  printf("bw: sum_I = %.10f\n",
-         std::accumulate(I, I + H * W * N * K, 0.0));
-  printf("bw: sum_P = %.10f\n",
-         std::accumulate(P, P + 4 * (1 + K + D + D) * 5 * D, 0.0));
-  printf("bw: sum_O = %.10f\n",
-         std::accumulate(O, O + H * W * N * 4 * D, 0.0));
-  printf("bw: sum_Q = %.10f\n",
-         std::accumulate(Q, Q + 4 * H * W * N * 6 * D, 0.0));
-  printf("bw: sum_dO = %.10f\n",
-         std::accumulate(dO, dO + H * W * N * 4 * D, 0.0));
-  printf("bw: sum_dQ' = %.10f\n",
-         std::accumulate(dQ, dQ + 4 * H * W * N * 6 * D, 0.0));
-
   // Process the image diagonal-wise, in backwards order
   // (there are H + W - 1 diagonals to process)
   for (int t = H + W - 2; t >= 0; --t) {
@@ -235,9 +195,6 @@ void rnn2d_lstm_bw_cpu(const int H, const int W, const int N, const int K,
     }
     bw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q, dQ);
   }
-
-  printf("bw: sum_dQ = %.10f\n",
-         std::accumulate(dQ, dQ + 4 * H * W * N * 6 * D, 0.0));
 }
 
 

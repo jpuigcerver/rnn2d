@@ -60,4 +60,46 @@
 #define dRx_ptr(z, d1, g, d2)                                           \
   (dP + ((z) * (1 + K + D + D) + 1 + K + D + (d1)) * 5 * D + (g) * D + (d2))
 
+#define print_4D(H, W, N, D, T) {                                       \
+    for (int y = 0; y < (H); ++y) {                                     \
+      for (int x = 0; x < (W); ++x) {                                   \
+        for (int n = 0; n < (N); ++n) {                                 \
+          printf("%s(%d, %d, %d, :) =", #T, y, x, n);                   \
+          for (int d = 0; d < (D); ++d) {                               \
+            printf(" %f", T[y * W * N * D + x * N * D + n * D + d]);    \
+          }                                                             \
+          printf("\n");                                                 \
+        }                                                               \
+        printf("\n");                                                   \
+      }                                                                 \
+      printf("\n");                                                     \
+    }                                                                   \
+  }
+
+#define print_6D(Z, H, W, N, G, D, T) {                                 \
+    for(int z = 0; z < (Z); ++z) {                                      \
+      for (int y = 0; y < (H); ++y) {                                   \
+        for (int x = 0; x < (W); ++x) {                                 \
+          for (int n = 0; n < (N); ++n) {                               \
+            for (int g = 0; g < (G); ++g) {                             \
+              printf("%s(%d, %d, %d, %d, %d, :) =", #T, z, y, x, n, g); \
+              for (int d = 0; d < (D); ++d) {                           \
+                printf(" %f", T[z * (H) * (W) * (N) * (G) * (D) +       \
+                                y * (W) * (N) * (G) * (D) +             \
+                                x * (N) * (G) * (D) +                   \
+                                n * (D) * (G) +                         \
+                                g * (D) + d]);                          \
+              }                                                         \
+              printf("\n");                                             \
+            }                                                           \
+            printf("\n");                                               \
+          }                                                             \
+          printf("\n");                                                 \
+        }                                                               \
+        printf("\n");                                                   \
+      }                                                                 \
+      printf("\n");                                                     \
+    }                                                                   \
+  }
+
 #endif  // RNN2D_LSTM_COMMON_H_

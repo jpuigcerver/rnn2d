@@ -5,24 +5,6 @@ static const int H = 2, W = 3, N = 2, K = 3, D = 2;
 static const int S[N * 2] = {2, 3, 2, 3};
 
 template <typename T>
-void printO(const int H, const int W, const int N, const int D, const T* O) {
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < W; ++x) {
-      std::printf("O(%d,%d,.,.) =\n", y + 1, x + 1);
-      for (int n = 0; n < N; ++n) {
-        for (int z = 0; z < 4; ++z) {
-          for (int d = 0; d < D; ++d) {
-            std::printf(" % .4f", *O_ptr(y, x, n, z, d));
-          }
-        }
-        std::printf("\n");
-      }
-      std::printf("\n");
-    }
-  }
-}
-
-template <typename T>
 const std::vector<T>& I() {
   static const std::vector<T> I_{
     0.30, 0.68, 0.29, 0.10, 0.70, 0.88, 0.13, 0.18, 0.35, 0.86, 0.66, 0.75,
@@ -126,7 +108,7 @@ void run() {
   rnn2d_lstm_fw_cpu< T, Sigmoid<T>, Tanh<T>, Tanh<T> >(
       H, W, N, K, D, I<T>().data(), S, P<T>().data(), O.data(), Q.data());
   // Backward pass
-  rnn2d_lstm_bw_cpu< T, Linear<T>, Linear<T>, Linear<T> >(
+  rnn2d_lstm_bw_cpu< T, Sigmoid<T>, Tanh<T>, Tanh<T> >(
       H, W, N, K, D, I<T>().data(), S, P<T>().data(), O.data(), Q.data(),
       dO<T>().data(), dQ.data());
   // Get gradInput
