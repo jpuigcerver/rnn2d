@@ -129,3 +129,5 @@ function LSTM:clearState()
   nn.utils.clear(self, '_input', '_gradOutput', 'workspace', 'gradWorkspace')
   return parent.clearState(self)
 end
+
+return LSTM

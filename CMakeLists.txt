@@ -18,6 +18,8 @@ FIND_PACKAGE(CUDA)
 
 OPTION(USE_CUDA "Compile binaries with CUDA support" ON)
 
+INCLUDE_DIRECTORIES(${GLOG_INCLUDE_DIRS})
+
 SET(_header_files
   activation.h
   lstm_common.h
@@ -36,6 +38,8 @@ IF(CUDA_FOUND AND USE_CUDA)
 	"${CUDA_NVCC_FLAGS} -Xcompiler -D_MWAITXINTRIN_H_INCLUDED")
   ENDIF()
   CUDA_ADD_LIBRARY(rnn2d SHARED lstm_gpu_kernels.cu lstm_gpu_kernels.h)
+  CUDA_ADD_CUBLAS_TO_TARGET(rnn2d)
+  TARGET_LINK_LIBRARIES(rnn2d ${BLAS_LIBRARIES} ${GLOG_LIBRARIES})
   SET(_header_files
     ${_header_files}
     lstm_gpu.h
@@ -49,11 +53,10 @@ ADD_SUBDIRECTORY(torch)
 IF(GTEST_FOUND AND GMOCK_FOUND)
   INCLUDE_DIRECTORIES(${GTEST_INCLUDE_DIRS})
   INCLUDE_DIRECTORIES(${GMOCK_INCLUDE_DIRS})
-  INCLUDE_DIRECTORIES(${GLOG_INCLUDE_DIRS})
 
   ADD_EXECUTABLE(lstm_cpu_test lstm_cpu_test.cc)
   TARGET_LINK_LIBRARIES(lstm_cpu_test
-    ${BLAS_LIBRARIES} ${GMOCK_MAIN_LIBRARIES})
+    ${BLAS_LIBRARIES} ${GLOG_LIBRARIES} ${GMOCK_MAIN_LIBRARIES})
   GTEST_ADD_TESTS(lstm_cpu_test "" lstm_cpu_test.cc)
 
   IF (CUDA_FOUND AND USE_CUDA)

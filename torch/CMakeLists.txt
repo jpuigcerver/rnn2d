@@ -11,7 +11,8 @@ IF (Torch_FOUND)
   ADD_LIBRARY(rnn2d_torch MODULE
     binding.cc binding.h
     utils.c utils.h)
-  TARGET_LINK_LIBRARIES(rnn2d_torch luajit luaT TH)
+  TARGET_LINK_LIBRARIES(rnn2d_torch
+    luajit luaT TH ${GLOG_LIBRARIES} ${BLAS_LIBRARIES})
 
   SET(REQUIRE_CUNN "")
   IF (CUDA_FOUND AND USE_CUDA)

@@ -1,7 +1,7 @@
 require 'rnn2d'
 
 local lstm2dtest = torch.TestSuite()
-local jac = nn.Jacobian
+local tester = torch.Tester()
 
 local H, W, N, K, D = 2, 3, 2, 3, 2
 local lstm2d = rnn2d.LSTM(K, D)
@@ -81,49 +81,31 @@ local gradOutput = torch.DoubleTensor({
     0.80,  0.24,  0.40,  0.49, -0.93,  0.09})
 gradOutput:resize(H, W, N, 4 * D)
 
-function fb_layer(layer, input, gradOutput)
-  layer:zeroGradParameters()
-  local output = layer:forward(input)
-  local gradInput = layer:backward(input, gradOutput)
+function generic_test(t)
+  input = input:type(t)
+  gradOutput = gradOutput:type(t)
+  lstm2d = lstm2d:type(t)
+  lstm2d:zeroGradParameters()
+  local output = lstm2d:forward(input)
+  local gradInput = lstm2d:backward(input, gradOutput)
+--  tester:assertalmosteq(output:sum(), -6.70230436325073242, 1E-5,
+--			'checksum for lstm2d output failed')
+--  tester:assertalmosteq(gradInput:sum(), 6.54379034042358398, 1E-5,
+--			'checksum for lstm2d gradInput failed')
 end
 
 function lstm2dtest.testFloat()
-  input = input:float()
-  gradOutput = gradOutput:float()
-  lstm2d:float()
-  fb_layer(lstm2d, input, gradOutput)
+  generic_test('torch.FloatTensor')
 end
 
 function lstm2dtest.testDouble()
-  input = input:float()
-  gradOutput = gradOutput:float()
-  lstm2d:float()
-  fb_layer(lstm2d, input, gradOutput)
+  generic_test('torch.DoubleTensor')
 end
 
 function lstm2dtest.testCudaFloat()
-  input = input:float()
-  gradOutput = gradOutput:float()
-  lstm2d:float()
-  fb_layer(lstm2d, input, gradOutput)
+  generic_test('torch.CudaTensor')
 end
+generic_test('torch.CudaTensor')
 
-
-
-
-os.exit(1)
-
-
-print(string.format('sum_I  = %.18f', input:sum()))
-print(string.format('sum_P  = %.18f', lstm2d.weight:sum()))
-print(string.format('sum_dO = %.18f', gradOutput:sum()))
-print(string.format('sum_Q  = %.18f', lstm2d.workspace:sum()))
-print(string.format('sum_O  = %.18f', output:sum()))
-print(string.format('sum_dQ = %.18f', lstm2d.gradWorkspace:sum()))
-print(string.format('sum_dI = %.18f', gradInput:sum()))
-print(string.format('sum_dP = %.18f', lstm2d.gradWeight:sum()))
-
-
-local mytester = torch.Tester()
-mytester:add(lstm2dtest)
-mytester:run()
+--tester:add(lstm2dtest)
+--tester:run()

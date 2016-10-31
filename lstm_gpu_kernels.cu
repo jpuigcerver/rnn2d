@@ -48,7 +48,6 @@ void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
   const int x  = (z == 0 || z == 2) ? j : W - j - 1;
   const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
   const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
-
   if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
     const T f_a   = FI::f(*Q_ptr(z, y, x, n, 0, d));  // f_i(input)
     const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 1, d));  // f_g(input gate)
@@ -89,19 +88,19 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
   T* dGfy_00 = dQ_ptr(z, y, x, n, 3, d);
   T* dGfx_00 = dQ_ptr(z, y, x, n, 4, d);
   T* dC_00   = dQ_ptr(z, y, x, n, 5, d);
-  const T dC_10 = (yn >= 0 && yn < H) ? *dQ_ptr(z, yn, x, n, 5, d) : 0;
-  const T dC_01 = (xn >= 0 && xn < W) ? *dQ_ptr(z, y, xn, n, 5, d) : 0;
-  const T Gfx_01 = (xn >= 0 && xn < W) ? *Q_ptr(z, y, xn, n, 4, d) : 0;
-  const T Gfy_10 = (yn >= 0 && yn < H) ? *Q_ptr(z, yn, x, n, 3, d) : 0;
-  const T C_10   = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
-  const T C_01   = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
-  const T C_00   = *Q_ptr(z, y, x, n, 5, d);
-  const T Gfx_00 = *Q_ptr(z, y, x, n, 4, d);
-  const T Gfy_00 = *Q_ptr(z, y, x, n, 3, d);
-  const T Go_00  = *Q_ptr(z, y, x, n, 2, d);
-  const T Gi_00  = *Q_ptr(z, y, x, n, 1, d);
-  const T A_00   = *Q_ptr(z, y, x, n, 0, d);
-  if (S == nullptr || (y < S[2 * n] && x < S[2 * n + 1])) {
+  if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
+    const T dC_10 = (yn >= 0 && yn < H) ? *dQ_ptr(z, yn, x, n, 5, d) : 0;
+    const T dC_01 = (xn >= 0 && xn < W) ? *dQ_ptr(z, y, xn, n, 5, d) : 0;
+    const T Gfx_01 = (xn >= 0 && xn < W) ? *Q_ptr(z, y, xn, n, 4, d) : 0;
+    const T Gfy_10 = (yn >= 0 && yn < H) ? *Q_ptr(z, yn, x, n, 3, d) : 0;
+    const T C_10   = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
+    const T C_01   = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
+    const T C_00   = *Q_ptr(z, y, x, n, 5, d);
+    const T Gfx_00 = *Q_ptr(z, y, x, n, 4, d);
+    const T Gfy_00 = *Q_ptr(z, y, x, n, 3, d);
+    const T Go_00  = *Q_ptr(z, y, x, n, 2, d);
+    const T Gi_00  = *Q_ptr(z, y, x, n, 1, d);
+    const T A_00   = *Q_ptr(z, y, x, n, 0, d);
     *dGo_00 = (*dC_00) * FO::f(C_00) * FG::df(Go_00);
     *dC_00  = (*dC_00) * FO::df(C_00) * FG::f(Go_00) +
         dC_10 * FG::f(Gfy_10) + dC_01 * FG::f(Gfx_01);
@@ -126,6 +125,7 @@ __global__
 void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
                           const int t, const int Tn, const int Tmin,
                           const T* dO, T* dQ) {
+  printf("WAKA %d\n", thGi);
   if (thGi >= 4 * Tn * N * D) return;
   const int d = thGi % D;
   const int n = (thGi / D) % N;
@@ -142,6 +142,7 @@ void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
   template <>                                           \
   void fill<T>(const int n, T* x, const T& v) {         \
     kernel_fill<T><<<DIV_UP(n, 512), 512>>>(n, x, v);   \
+    CHECK_LAST_CUDA_CALL();                             \
   }
 
 #define DEFINE_INIT_Q_WITH_BIAS(T)                                      \
@@ -152,6 +153,7 @@ void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
     kernel_init_Q_with_bias<T>                                          \
         <<<DIV_UP(4 * H * W * N * 5 * D, 512), 512>>>(                  \
             H, W, N, K, D, P, Q);                                       \
+    CHECK_LAST_CUDA_CALL();                                             \
   }
 
 #define DEFINE_COPY_dO_TO_dC(T)                                         \
@@ -163,6 +165,7 @@ void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
     kernel_copy_dO_to_dC<T>                                             \
         <<<DIV_UP(4 * Tn * N * D, 512), 512>>>(                         \
             H, W, N, D, t, Tn, Tmin, dO, dQ);                           \
+    CHECK_LAST_CUDA_CALL();                                             \
   }
 
 #define DEFINE_FW_ELEMWISE_OPS(T, FG, FI, FO)                           \
@@ -174,6 +177,7 @@ void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
     kernel_fw_elemwise_ops< T, FG<T>, FI<T>, FO<T> >                    \
         <<<DIV_UP(4 * Tn * N * D, 512), 512>>>(                         \
             H, W, N, D, t, Tn, Tmin, S, Q, O);                          \
+    CHECK_LAST_CUDA_CALL();                                             \
   }
 
 #define DEFINE_BW_ELEMWISE_OPS(T, FG, FI, FO)                           \
@@ -185,6 +189,7 @@ void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
     kernel_bw_elemwise_ops< T, FG<T>, FI<T>, FO<T> >                    \
         <<<DIV_UP(4 * Tn * N * D, 512), 512>>>(                         \
             H, W, N, D, t, Tn, Tmin, S, Q, dQ);                         \
+    CHECK_LAST_CUDA_CALL();                                             \
   }
 
 DEFINE_FILL(float);

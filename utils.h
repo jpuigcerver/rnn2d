@@ -3,18 +3,50 @@
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
+#include <cublas_v2.h>
 #endif  // USE_CUDA
 #include <glog/logging.h>
 
 #define DIV_UP(x, y) (((x) + (y) - 1) / (y))
 
 #ifdef USE_CUDA
-#define CHECK_CUDA_CALL(err) {                                          \
-    const cudaError_t e = (err);                                        \
-    CHECK_EQ(e, cudaSuccess) << "CUDA error : " << e << " ("            \
-                             << cudaGetErrorString(e)  << ")";          \
+#define CHECK_CUDA_CALL(status)                                          \
+  CHECK_EQ((status), cudaSuccess) << "CUDA error : " << (status) << " (" \
+  << cudaGetErrorString((status))  << ")"
+
+#define CHECK_LAST_CUDA_CALL() CHECK_CUDA_CALL(cudaPeekAtLastError())
+
+
+static const char *_cublasGetErrorEnum(cublasStatus_t status) {
+  switch (status) {
+    case CUBLAS_STATUS_SUCCESS:
+      return "CUBLAS_STATUS_SUCCESS";
+    case CUBLAS_STATUS_NOT_INITIALIZED:
+      return "CUBLAS_STATUS_NOT_INITIALIZED";
+    case CUBLAS_STATUS_ALLOC_FAILED:
+      return "CUBLAS_STATUS_ALLOC_FAILED";
+    case CUBLAS_STATUS_INVALID_VALUE:
+      return "CUBLAS_STATUS_INVALID_VALUE";
+    case CUBLAS_STATUS_ARCH_MISMATCH:
+      return "CUBLAS_STATUS_ARCH_MISMATCH";
+    case CUBLAS_STATUS_MAPPING_ERROR:
+      return "CUBLAS_STATUS_MAPPING_ERROR";
+    case CUBLAS_STATUS_EXECUTION_FAILED:
+      return "CUBLAS_STATUS_EXECUTION_FAILED";
+    case CUBLAS_STATUS_INTERNAL_ERROR:
+      return "CUBLAS_STATUS_INTERNAL_ERROR";
+    case CUBLAS_STATUS_NOT_SUPPORTED:
+      return "CUBLAS_STATUS_NOT_SUPPORTED";
+    case CUBLAS_STATUS_LICENSE_ERROR:
+      return "CUBLAS_STATUS_LICENSE_ERROR";
   }
-#define CHECK_LAST_CUDA_CALL CHECK_CUDA_CALL(cudaGetLastError())
+  return "<unknown>";
+}
+
+#define CHECK_CUBLAS_CALL(status)                                       \
+  CHECK_EQ((status), CUBLAS_STATUS_SUCCESS) << "CUBLAS error : "        \
+  << (status) << " (" << _cublasGetErrorEnum((status)) << ")"
+
 #endif  // USE_CUDA
 
 // Some definitions that only make sense when using CUDACC

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cassert>
 #include <cstdio>
+#include <glog/logging.h>
 
 #include "activation.h"
 #include "lstm_common.h"
@@ -27,6 +28,10 @@ template < typename T, typename FG, typename FI, typename FO >
 void rnn2d_lstm_fw_cpu(const int H, const int W, const int N, const int K,
                        const int D, const T* I, const int* S, const T* P,
                        T* O, T* Q) {
+  CHECK_NOTNULL(I);
+  CHECK_NOTNULL(P);
+  CHECK_NOTNULL(O);
+  CHECK_NOTNULL(Q);
   // Initialize input to the block and gates with bias
   #pragma omp parallel for
   for (int i = 0; i < 4 * H * W * N * 5 * D; ++i) {
@@ -149,6 +154,12 @@ template <typename T, typename FG, typename FI, typename FO>
 void rnn2d_lstm_bw_cpu(const int H, const int W, const int N, const int K,
                        const int D, const T* I, const int* S, const T* P,
                        const T* O, const T* Q, const T* dO, T* dQ) {
+  CHECK_NOTNULL(I);
+  CHECK_NOTNULL(P);
+  CHECK_NOTNULL(O);
+  CHECK_NOTNULL(Q);
+  CHECK_NOTNULL(dO);
+  CHECK_NOTNULL(dQ);
   // Process the image diagonal-wise, in backwards order
   // (there are H + W - 1 diagonals to process)
   for (int t = H + W - 2; t >= 0; --t) {
@@ -202,11 +213,13 @@ template <typename T>
 void rnn2d_lstm_bw_input_cpu(const int H, const int W, const int N, const int K,
                              const int D, const T* P, const T* dQ,
                              const T scale, T* dI) {
+  CHECK_NOTNULL(P);
+  CHECK_NOTNULL(dQ);
+  CHECK_NOTNULL(dI);
   // dJ/dI(y,x)
   for (int z = 0; z < 4; ++z) {
-    /* dQ reshaped as (H * W * N) x (6 * D),
-       but only the first 5 * D columns are
-       used */
+    /* dQ reshaped as (H * W * N) x (6 * D), but only the first 5 * D columns
+       are used */
     /* iW^T reshaped as (5 * D) x (K) */
     /* dI reshaped as (H * W * N) x K */
     gemm_cpu<T>('N', 'T', H * W * N, K, 5 * D,
@@ -220,6 +233,10 @@ template <typename T>
 void rnn2d_lstm_bw_params_cpu(
     const int H, const int W, const int N, const int K, const int D,
     const T* I, const T* O, const T* dQ, const T scale, T* dP) {
+  CHECK_NOTNULL(I);
+  CHECK_NOTNULL(O);
+  CHECK_NOTNULL(dQ);
+  CHECK_NOTNULL(dP);
   // dJ/db
   const std::vector<T> vOnes(H * W * N, 1);
   #pragma omp parallel for

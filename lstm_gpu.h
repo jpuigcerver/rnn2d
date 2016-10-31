@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cassert>
 #include <cstdio>
+#include <glog/logging.h>
 
 #include "activation.h"
 #include "lstm_common.h"
@@ -14,25 +15,25 @@
 
 #define MAX_STREAMS 1024
 
-#define STREAMS_CREATE(N)                       \
-  for (int z = 0; z < 4; ++z) {                 \
-    for (int e = 0; e < (N); ++e) {             \
-      cudaStreamCreate(&stream[z][e]);          \
-    }                                           \
+#define STREAMS_CREATE(N)                               \
+  for (int z = 0; z < 4; ++z) {                         \
+    for (int e = 0; e < (N); ++e) {                     \
+      CHECK_CUDA_CALL(cudaStreamCreate(&stream[z][e])); \
+    }                                                   \
   }
 
-#define STREAMS_DESTROY(N)                      \
-  for (int z = 0; z < 4; ++z) {                 \
-    for (int e = 0; e < (N); ++e) {             \
-      cudaStreamDestroy(stream[z][e]);          \
-    }                                           \
+#define STREAMS_DESTROY(N)                              \
+  for (int z = 0; z < 4; ++z) {                         \
+    for (int e = 0; e < (N); ++e) {                     \
+      CHECK_CUDA_CALL(cudaStreamDestroy(stream[z][e])); \
+    }                                                   \
   }
 
-#define STREAMS_SYNCHRONIZE(N)                  \
-  for (int z = 0; z < 4; ++z) {                 \
-    for (int e = 0; e < (N); ++e) {             \
-      cudaStreamSynchronize(stream[z][e]);      \
-    }                                           \
+#define STREAMS_SYNCHRONIZE(N)                                  \
+  for (int z = 0; z < 4; ++z) {                                 \
+    for (int e = 0; e < (N); ++e) {                             \
+      CHECK_CUDA_CALL(cudaStreamSynchronize(stream[z][e]));     \
+    }                                                           \
   }
 
 
@@ -52,10 +53,14 @@ template < typename T, typename FG, typename FI, typename FO >
 void rnn2d_lstm_fw_gpu(const int H, const int W, const int N, const int K,
                        const int D, const T* I, const int* S, const T* P,
                        T* O, T* Q) {
+  CHECK_NOTNULL(I);
+  CHECK_NOTNULL(P);
+  CHECK_NOTNULL(O);
+  CHECK_NOTNULL(Q);
   const int NSZ = std::max(std::min(std::min(H, W), MAX_STREAMS), 4);
   // Prepare cublas handler and streams
   cublasHandle_t handle;
-  cublasCreate(&handle);  // TODO: check for errors
+  CHECK_CUBLAS_CALL(cublasCreate(&handle));
   cudaStream_t stream[4][MAX_STREAMS];
   STREAMS_CREATE(NSZ);
 
@@ -65,10 +70,11 @@ void rnn2d_lstm_fw_gpu(const int H, const int W, const int N, const int K,
   // Multiply inputs by weights.
   for (int z = 0; z < 4; ++z) {
     cublasSetStream(handle, stream[z][0]);
-    gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, H * W * N, 5 * D, K,
-                1.0, I, K,
-                W_ptr(z, 0, 0, 0), 5 * D,
-                1.0, Q_ptr(z, 0, 0, 0, 0, 0), 6 * D);
+    CHECK_CUBLAS_CALL(
+        gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, H * W * N, 5 * D, K,
+                    1.0, I, K,
+                    W_ptr(z, 0, 0, 0), 5 * D,
+                    1.0, Q_ptr(z, 0, 0, 0, 0, 0), 6 * D));
   }
 
   // Synchronize streams
@@ -83,7 +89,7 @@ void rnn2d_lstm_fw_gpu(const int H, const int W, const int N, const int K,
 
     for (int z = 0; z < 4; ++z) {
       for (int e = 0; e < Tn; ++e) {
-        cublasSetStream(handle, stream[z][e % NSZ]);
+        CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z][e % NSZ]));
         // (y, x) coordinates of the e-th element in the z-th diagonal.
         const int i = e + Tmin;
         const int j = t - i;
@@ -94,17 +100,19 @@ void rnn2d_lstm_fw_gpu(const int H, const int W, const int N, const int K,
         T* Q_00 = Q_ptr(z, y, x, 0, 0, 0);
         if (yp >= 0 && yp <= H - 1) {
           const T* O_10 = O_ptr(yp, x, 0, z, 0);
-          gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
-                      1.0, O_10, 4 * D,
-                      Ry_ptr(z, 0, 0, 0), 5 * D,
-                      1.0, Q_00, 6 * D);
+          CHECK_CUBLAS_CALL(
+              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
+                          1.0, O_10, 4 * D,
+                          Ry_ptr(z, 0, 0, 0), 5 * D,
+                          1.0, Q_00, 6 * D));
         }
         if (xp >= 0 && xp <= W - 1) {
           const T* O_01 = O_ptr(y, xp, 0, z, 0);
-          gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
-                      1.0, O_01, 4 * D,
-                      Rx_ptr(z, 0, 0, 0), 5 * D,
-                      1.0, Q_00, 6 * D);
+          CHECK_CUBLAS_CALL(
+              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
+                          1.0, O_01, 4 * D,
+                          Rx_ptr(z, 0, 0, 0), 5 * D,
+                          1.0, Q_00, 6 * D));
         }
       }
     }
@@ -113,7 +121,7 @@ void rnn2d_lstm_fw_gpu(const int H, const int W, const int N, const int K,
   }
 
   STREAMS_DESTROY(NSZ);
-  cublasDestroy(handle);  // TODO: check for errors
+  CHECK_CUBLAS_CALL(cublasDestroy(handle));  // TODO: check for errors
 }
 
 
@@ -135,10 +143,16 @@ template <typename T, typename FG, typename FI, typename FO>
 void rnn2d_lstm_bw_gpu(const int H, const int W, const int N, const int K,
                        const int D, const T* I, const int* S, const T* P,
                        const T* O, const T* Q, const T* dO, T* dQ) {
+  CHECK_NOTNULL(I);
+  CHECK_NOTNULL(P);
+  CHECK_NOTNULL(O);
+  CHECK_NOTNULL(Q);
+  CHECK_NOTNULL(dO);
+  CHECK_NOTNULL(dQ);
   const int NSZ = std::max(std::min(std::min(H, W), MAX_STREAMS), 4);
   // Prepare cublas handler and streams
   cublasHandle_t handle;
-  cublasCreate(&handle);  // TODO: check for errors
+  CHECK_CUBLAS_CALL(cublasCreate(&handle));
   cudaStream_t stream[4][MAX_STREAMS];
   STREAMS_CREATE(NSZ);
 
@@ -149,12 +163,12 @@ void rnn2d_lstm_bw_gpu(const int H, const int W, const int N, const int K,
     const int Tmin = std::max(0, t - W + 1);
     const int Tmax = std::min(t, H - 1);
     const int Tn   = (Tmax - Tmin) + 1;
-
+    fprintf(stderr, "HERE %d %d %d %d %d %d\n", H, W, N, D, t, Tn);
     copy_dO_to_dC<T>(H, W, N, D, t, Tn, Tmin, dO, dQ);
 
     for (int z = 0; z < 4; ++z) {
       for (int e = 0; e < Tn; ++e) {
-        cublasSetStream(handle, stream[z][e % NSZ]);
+        CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z][e % NSZ]));
         const int i = e + Tmin;
         const int j = t - i;
         const int y  = (z == 0 || z == 1) ? i : H - i - 1;
@@ -162,16 +176,18 @@ void rnn2d_lstm_bw_gpu(const int H, const int W, const int N, const int K,
         const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
         const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
         if (yn >= 0 && yn < H) {
-          gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
-                      1.0, dQ_ptr(z, yn, x, 0, 0, 0), 6 * D,
-                      Ry_ptr(z, 0, 0, 0), 5 * D,
-                      1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D);
+          CHECK_CUBLAS_CALL(
+              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
+                          1.0, dQ_ptr(z, yn, x, 0, 0, 0), 6 * D,
+                          Ry_ptr(z, 0, 0, 0), 5 * D,
+                          1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D));
         }
         if (xn >= 0 && xn < W) {
-          gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
-                      1.0, dQ_ptr(z, y, xn, 0, 0, 0), 6 * D,
-                      Rx_ptr(z, 0, 0, 0), 5 * D,
-                      1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D);
+          CHECK_CUBLAS_CALL(
+              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
+                          1.0, dQ_ptr(z, y, xn, 0, 0, 0), 6 * D,
+                          Rx_ptr(z, 0, 0, 0), 5 * D,
+                          1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D));
         }
       }
     }
@@ -180,13 +196,16 @@ void rnn2d_lstm_bw_gpu(const int H, const int W, const int N, const int K,
   }
 
   STREAMS_DESTROY(NSZ);
-  cublasDestroy(handle);  // TODO: check for errors
+  CHECK_CUBLAS_CALL(cublasDestroy(handle));
 }
 
 template <typename T>
 void rnn2d_lstm_bw_input_gpu(const int H, const int W, const int N, const int K,
                              const int D, const T* P, const T* dQ,
                              const T scale, T* dI) {
+  CHECK_NOTNULL(P);
+  CHECK_NOTNULL(dQ);
+  CHECK_NOTNULL(dI);
   // dJ/dI(y,x)
   cublasHandle_t handle;
   cublasCreate(&handle);  // TODO: check for errors
@@ -203,6 +222,11 @@ template <typename T>
 void rnn2d_lstm_bw_params_gpu(
     const int H, const int W, const int N, const int K, const int D,
     const T* I, const T* O, const T* dQ, const T scale, T* dP) {
+  CHECK_NOTNULL(I);
+  CHECK_NOTNULL(O);
+  CHECK_NOTNULL(dQ);
+  CHECK_NOTNULL(dP);
+
   cublasHandle_t handle;
   cublasCreate(&handle);  // TODO: check for errors
   cudaStream_t stream[4][4];

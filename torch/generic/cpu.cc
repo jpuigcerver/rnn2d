@@ -106,9 +106,6 @@ TORCH_API int THTensor_(rnn2d_lstm_bw_workspace)(lua_State* L){
   CHECK_TENSOR_CONTIGUOUS("gradOutput", THTensor_(isContiguous)(d_out));
   CHECK_TENSOR_CONTIGUOUS("gradWorkspace",
                           THTensor_(isContiguous)(d_workspace));
-  printf("%.18f\n", std::accumulate(
-      THTensor_(data)(d_workspace),
-      THTensor_(data)(d_workspace) + THTensor_(nElement)(d_workspace), 0.0));
   // Run backward pass
   rnn2d_lstm_bw_cpu< real, Sigmoid<real>, Tanh<real>, Tanh<real> >(
       H, W, N, K, D,

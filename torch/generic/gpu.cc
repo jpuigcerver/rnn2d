@@ -46,7 +46,7 @@ TORCH_API int THCTensor_(rnn2d_lstm_fw)(lua_State* L) {
     CHECK_TENSOR_CONTIGUOUS("shapes", THCudaIntTensor_isContiguous(state, dim));
   }
   // Run forward pass
-  rnn2d_lstm_fw_cpu< real, Sigmoid<real>, Tanh<real>, Tanh<real> >(
+  rnn2d_lstm_fw_gpu< real, Sigmoid<real>, Tanh<real>, Tanh<real> >(
       H, W, N, K, D,
       THCTensor_(data)(state, inp),
       explicit_dims ? THCudaIntTensor_data(state, dim) : nullptr,
@@ -109,7 +109,7 @@ TORCH_API int THCTensor_(rnn2d_lstm_bw_workspace)(lua_State* L){
   CHECK_TENSOR_CONTIGUOUS("gradWorkspace",
                           THCTensor_(isContiguous)(state, d_workspace));
   // Run backward pass
-  rnn2d_lstm_bw_cpu< real, Sigmoid<real>, Tanh<real>, Tanh<real> >(
+  rnn2d_lstm_bw_gpu< real, Sigmoid<real>, Tanh<real>, Tanh<real> >(
       H, W, N, K, D,
       THCTensor_(data)(state, inp),
       explicit_dims ? THCudaIntTensor_data(state, dim) : nullptr,
@@ -151,11 +151,12 @@ TORCH_API int THCTensor_(rnn2d_lstm_bw_input)(lua_State* L){
   CHECK_TENSOR_CONTIGUOUS("gradWorkspace",
                           THCTensor_(isContiguous)(state, d_workspace));
   // Run backward pass
-  rnn2d_lstm_bw_input_cpu<real>(
+  rnn2d_lstm_bw_input_gpu<real>(
       H, W, N, K, D,
       THCTensor_(data)(state, param),
       THCTensor_(data)(state, d_workspace),
       scale, THCTensor_(data)(state, d_inp));
+  fprintf(stderr, "HERE2\n");
   return 0;
 }
 
@@ -194,12 +195,13 @@ TORCH_API int THCTensor_(rnn2d_lstm_bw_params)(lua_State* L){
   CHECK_TENSOR_CONTIGUOUS("gradWorkspace",
                           THCTensor_(isContiguous)(state, d_workspace));
   // Run backward pass
-  rnn2d_lstm_bw_params_cpu< real >(
+  rnn2d_lstm_bw_params_gpu< real >(
       H, W, N, K, D,
       THCTensor_(data)(state, inp),
       THCTensor_(data)(state, out),
       THCTensor_(data)(state, d_workspace),
       scale, THCTensor_(data)(state, d_param));
+  fprintf(stderr, "HERE3\n");
   return 0;
 }
 
