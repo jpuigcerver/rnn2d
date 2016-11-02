@@ -45,7 +45,7 @@ TORCH_API int THTensor_(rnn2d_lstm_fw)(lua_State* L) {
     CHECK_TENSOR_CONTIGUOUS("shapes", THIntTensor_isContiguous(dim));
   }
   // Run forward pass
-  rnn2d_lstm_fw_cpu< real, Sigmoid<real>, Tanh<real>, Tanh<real> >(
+  rnn2d_lstm_cpu_ ## real ## _fw_training(
       H, W, N, K, D,
       THTensor_(data)(inp),
       explicit_dims ? THIntTensor_data(dim) : nullptr,

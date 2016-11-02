@@ -1,15 +1,12 @@
-#ifndef RNN2D_UTILS_H_
-#define RNN2D_UTILS_H_
+#ifndef RNN2D_CUDA_UTILS_H_
+#define RNN2D_CUDA_UTILS_H_
 
-#ifdef USE_CUDA
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
-#endif  // USE_CUDA
 #include <glog/logging.h>
 
 #define DIV_UP(x, y) (((x) + (y) - 1) / (y))
 
-#ifdef USE_CUDA
 #define CHECK_CUDA_CALL(status)                                          \
   CHECK_EQ((status), cudaSuccess) << "CUDA error : " << (status) << " (" \
   << cudaGetErrorString((status))  << ")"
@@ -47,10 +44,6 @@ static const char *_cublasGetErrorEnum(cublasStatus_t status) {
   CHECK_EQ((status), CUBLAS_STATUS_SUCCESS) << "CUBLAS error : "        \
   << (status) << " (" << _cublasGetErrorEnum((status)) << ")"
 
-#endif  // USE_CUDA
-
-// Some definitions that only make sense when using CUDACC
-#ifdef __CUDACC__
 // Thread IDs within a block
 #define thBx (threadIdx.x)
 #define thBy (threadIdx.y)
@@ -79,6 +72,5 @@ static const char *_cublasGetErrorEnum(cublasStatus_t status) {
 // Number of threads in the grid (total number of threads)
 #define NTG (blockDim.x * blockDim.y * blockDim.z * \
              gridDim.x * gridDim.y * gridDim.z)
-#endif  // __CUDACC__
 
-#endif  // RNN2D_UTILS_H_
+#endif  // RNN2D_CUDA_UTILS_H_

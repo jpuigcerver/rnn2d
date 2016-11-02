@@ -10,14 +10,14 @@
  * Go(y,x)  = I(y,x) * W_o  + O(y-1,x) * R_oy  + O(y,x-1) * R_ox  + B_o
  * Gfy(y,x) = I(y,x) * W_fy + O(y-1,x) * R_fyy + O(y,x-1) * R_fyx + B_fy
  * Gfx(y,x) = I(y,x) * W_fx + O(y-1,x) * R_fxy + O(y,x-1) * R_fxx + B_fx
- * C(y,x)   = s(Gi(y,x))  · f_i(A(y,x)) +
+ * C(y,x)   = s(Gi(y,x))  · g(A(y,x)) +
  *            s(Gfy(y,x)) · C(y-1,x)    +
  *            s(Gfx(y,x)) · C(y,x-1)
- * O(y,x)   = s(Go(y,x))  · f_o(C(y,x))
+ * O(y,x)   = s(Go(y,x))  · g(C(y,x))
  *
- * Operator (*) denotes matrix multiplication, operator (·) is element-wise
+ * Operator (*) denotes matrix multiplication, operator (·) is the element-wise
  * multiplication (or Hadamard product), s(z) is the sigmoid function and,
- * f_i/f_o are any two differentiable activation functions.
+ * g is the tanh function.
  *
  * The previous equations decribe the output when the image is processed in
  * the top-left direction. The equations in the other directions are similar,
@@ -100,6 +100,49 @@
       }                                                                 \
       printf("\n");                                                     \
     }                                                                   \
+  }
+
+#define DEFINE_WRAPPERS(DEVICE, TYPE)                                   \
+  void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference(             \
+      const int H, const int W, const int N, const int K, const int D,  \
+      const TYPE* input, const int* shape, const TYPE* param,           \
+      TYPE* output, TYPE* workspace) {                                  \
+    fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(         \
+        H, W, N, K, D, input, shape, param, output, workspace);         \
+  }                                                                     \
+                                                                        \
+  void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_training(              \
+      const int H, const int W, const int N, const int K, const int D,  \
+      const TYPE* input, const int* shape, const TYPE* param,           \
+      TYPE* output, TYPE* workspace) {                                  \
+    fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(         \
+        H, W, N, K, D, input, shape, param, output, workspace);         \
+  }                                                                     \
+                                                                        \
+  void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_workspace(             \
+      const int H, const int W, const int N, const int K, const int D,  \
+      const TYPE* input, const int* shape, const TYPE* param,           \
+      const TYPE* output, const TYPE* workspace, const TYPE* dOutput,   \
+      TYPE* dWorkspace) {                                               \
+    bw_workspace< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(        \
+        H, W, N, K, D, input, shape, param, output, workspace, dOutput, \
+        dWorkspace);                                                    \
+  }                                                                     \
+                                                                        \
+  void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_input(                 \
+      const int H, const int W, const int N, const int K, const int D,  \
+      const TYPE* param, const TYPE* dWorkspace, const TYPE scale,      \
+      TYPE* dInput) {                                                   \
+    bw_input< TYPE >(                                                   \
+        H, W, N, K, D, param, dWorkspace, scale, dInput);               \
+  }                                                                     \
+                                                                        \
+  void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param(                 \
+      const int H, const int W, const int N, const int K, const int D,  \
+      const TYPE* input, const TYPE* output, const TYPE* dWorkspace,    \
+      const TYPE scale, TYPE* dParam) {                                 \
+    bw_param< TYPE >(                                                   \
+        H, W, N, K, D, input, output, dWorkspace, scale, dParam);       \
   }
 
 #endif  // RNN2D_LSTM_COMMON_H_

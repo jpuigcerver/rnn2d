@@ -1,293 +1,69 @@
 #ifndef RNN2D_LSTM_GPU_H_
 #define RNN2D_LSTM_GPU_H_
 
-#include <algorithm>
-#include <cmath>
-#include <cassert>
-#include <cstdio>
-#include <glog/logging.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#include "activation.h"
-#include "lstm_common.h"
-#include "lstm_gpu_kernels.h"
-#include "math_gpu.h"
-#include "utils.h"
+// float
 
-#define MAX_STREAMS 1024
-
-#define STREAMS_CREATE(N)                               \
-  for (int z = 0; z < 4; ++z) {                         \
-    for (int e = 0; e < (N); ++e) {                     \
-      CHECK_CUDA_CALL(cudaStreamCreate(&stream[z][e])); \
-    }                                                   \
-  }
-
-#define STREAMS_DESTROY(N)                              \
-  for (int z = 0; z < 4; ++z) {                         \
-    for (int e = 0; e < (N); ++e) {                     \
-      CHECK_CUDA_CALL(cudaStreamDestroy(stream[z][e])); \
-    }                                                   \
-  }
-
-#define STREAMS_SYNCHRONIZE(N)                                  \
-  for (int z = 0; z < 4; ++z) {                                 \
-    for (int e = 0; e < (N); ++e) {                             \
-      CHECK_CUDA_CALL(cudaStreamSynchronize(stream[z][e]));     \
-    }                                                           \
-  }
-
-
-/* 2D-LSTM forward pass running on the GPU
- * H -> maximum height
- * W -> maximum width
- * N -> batch size
- * K -> input dimensions/channels
- * D -> output dimensions/channels
- * I -> input data (layout: H x W x N x K)
- * S -> input sizes (height and width of each sample, layout: N x 2)
- * P -> parameters (size: 4 * (1 + K + D + D) * 5 * D)
- * O -> output data (layout: H x W x N x 4 x D)
- * Q -> gates pre-activations and cells (layout: 4 x H x W x N x 6 x D)
- */
-template < typename T, typename FG, typename FI, typename FO >
-void rnn2d_lstm_fw_gpu(const int H, const int W, const int N, const int K,
-                       const int D, const T* I, const int* S, const T* P,
-                       T* O, T* Q) {
-  CHECK_NOTNULL(I);
-  CHECK_NOTNULL(P);
-  CHECK_NOTNULL(O);
-  CHECK_NOTNULL(Q);
-  const int NSZ = std::max(std::min(std::min(H, W), MAX_STREAMS), 4);
-  // Prepare cublas handler and streams
-  cublasHandle_t handle;
-  CHECK_CUBLAS_CALL(cublasCreate(&handle));
-  cudaStream_t stream[4][MAX_STREAMS];
-  STREAMS_CREATE(NSZ);
-
-  // Initialize gates with bias
-  init_Q_with_bias<T>(H, W, N, K, D, P, Q);
-
-  // Multiply inputs by weights.
-  for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][0]);
-    CHECK_CUBLAS_CALL(
-        gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, H * W * N, 5 * D, K,
-                    1.0, I, K,
-                    W_ptr(z, 0, 0, 0), 5 * D,
-                    1.0, Q_ptr(z, 0, 0, 0, 0, 0), 6 * D));
-  }
-
-  // Synchronize streams
-  STREAMS_SYNCHRONIZE(1);
-
-  // Process the image diagonal-wise (there are H + W - 1 diagonals to process)
-  for (int t = 0; t < H + W - 1; ++t) {
-    // Compute number of elements in the u-th diagonal
-    const int Tmin = std::max(0, t - W + 1);
-    const int Tmax = std::min(t, H - 1);
-    const int Tn   = (Tmax - Tmin) + 1;
-
-    for (int z = 0; z < 4; ++z) {
-      for (int e = 0; e < Tn; ++e) {
-        CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z][e % NSZ]));
-        // (y, x) coordinates of the e-th element in the z-th diagonal.
-        const int i = e + Tmin;
-        const int j = t - i;
-        const int y  = (z == 0 || z == 1) ? i : H - i - 1;
-        const int x  = (z == 0 || z == 2) ? j : W - j - 1;
-        const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
-        const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
-        T* Q_00 = Q_ptr(z, y, x, 0, 0, 0);
-        if (yp >= 0 && yp <= H - 1) {
-          const T* O_10 = O_ptr(yp, x, 0, z, 0);
-          CHECK_CUBLAS_CALL(
-              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
-                          1.0, O_10, 4 * D,
-                          Ry_ptr(z, 0, 0, 0), 5 * D,
-                          1.0, Q_00, 6 * D));
-        }
-        if (xp >= 0 && xp <= W - 1) {
-          const T* O_01 = O_ptr(y, xp, 0, z, 0);
-          CHECK_CUBLAS_CALL(
-              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
-                          1.0, O_01, 4 * D,
-                          Rx_ptr(z, 0, 0, 0), 5 * D,
-                          1.0, Q_00, 6 * D));
-        }
-      }
-    }
-    STREAMS_SYNCHRONIZE(Tn);
-    fw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q, O);
-  }
-
-  STREAMS_DESTROY(NSZ);
-  CHECK_CUBLAS_CALL(cublasDestroy(handle));  // TODO: check for errors
-}
-
-
-/* 2D-LSTM backward pass running on the GPU
- * H -> maximum height
- * W -> maximum width
- * N -> batch size
- * K -> input dimensions/channels
- * D -> output dimensions/channels
- * I -> input data (layout: H x W x N x K)
- * S -> input sizes (height and width of each sample, layout: N x 2)
- * P -> parameters (size: 4 * (1 + K + D + D) * 5 * D)
- * O -> output data (layout: H x W x N x 4 x D)
- * Q -> gates pre-activations and cells (layout: 4 x H x W x N x 6 x D)
- * dO -> derivative of the loss w.r.t the output
- * dQ -> derivative of the loss w.r.t the internal states
- */
-template <typename T, typename FG, typename FI, typename FO>
-void rnn2d_lstm_bw_gpu(const int H, const int W, const int N, const int K,
-                       const int D, const T* I, const int* S, const T* P,
-                       const T* O, const T* Q, const T* dO, T* dQ) {
-  CHECK_NOTNULL(I);
-  CHECK_NOTNULL(P);
-  CHECK_NOTNULL(O);
-  CHECK_NOTNULL(Q);
-  CHECK_NOTNULL(dO);
-  CHECK_NOTNULL(dQ);
-  const int NSZ = std::max(std::min(std::min(H, W), MAX_STREAMS), 4);
-  // Prepare cublas handler and streams
-  cublasHandle_t handle;
-  CHECK_CUBLAS_CALL(cublasCreate(&handle));
-  cudaStream_t stream[4][MAX_STREAMS];
-  STREAMS_CREATE(NSZ);
-
-  // Process the image diagonal-wise, in backwards order (there are H + W - 1
-  // diagonals to process)
-  for (int t = H + W - 2; t >= 0; --t) {
-    // Compute number of elements in the diagonal
-    const int Tmin = std::max(0, t - W + 1);
-    const int Tmax = std::min(t, H - 1);
-    const int Tn   = (Tmax - Tmin) + 1;
-    fprintf(stderr, "HERE %d %d %d %d %d %d\n", H, W, N, D, t, Tn);
-    copy_dO_to_dC<T>(H, W, N, D, t, Tn, Tmin, dO, dQ);
-
-    for (int z = 0; z < 4; ++z) {
-      for (int e = 0; e < Tn; ++e) {
-        CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z][e % NSZ]));
-        const int i = e + Tmin;
-        const int j = t - i;
-        const int y  = (z == 0 || z == 1) ? i : H - i - 1;
-        const int x  = (z == 0 || z == 2) ? j : W - j - 1;
-        const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
-        const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
-        if (yn >= 0 && yn < H) {
-          CHECK_CUBLAS_CALL(
-              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
-                          1.0, dQ_ptr(z, yn, x, 0, 0, 0), 6 * D,
-                          Ry_ptr(z, 0, 0, 0), 5 * D,
-                          1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D));
-        }
-        if (xn >= 0 && xn < W) {
-          CHECK_CUBLAS_CALL(
-              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
-                          1.0, dQ_ptr(z, y, xn, 0, 0, 0), 6 * D,
-                          Rx_ptr(z, 0, 0, 0), 5 * D,
-                          1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D));
-        }
-      }
-    }
-    STREAMS_SYNCHRONIZE(Tn);
-    bw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q, dQ);
-  }
-
-  STREAMS_DESTROY(NSZ);
-  CHECK_CUBLAS_CALL(cublasDestroy(handle));
-}
-
-template <typename T>
-void rnn2d_lstm_bw_input_gpu(const int H, const int W, const int N, const int K,
-                             const int D, const T* P, const T* dQ,
-                             const T scale, T* dI) {
-  CHECK_NOTNULL(P);
-  CHECK_NOTNULL(dQ);
-  CHECK_NOTNULL(dI);
-  // dJ/dI(y,x)
-  cublasHandle_t handle;
-  cublasCreate(&handle);  // TODO: check for errors
-  for (int z = 0; z < 4; ++z) {
-    gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, H * W * N, K, 5 * D,
-                scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                W_ptr(z, 0, 0, 0), 5 * D,
-                1.0, dI, K);
-  }
-  cublasDestroy(handle);  // TODO: check for errors
-}
-
-template <typename T>
-void rnn2d_lstm_bw_params_gpu(
+void rnn2d_lstm_gpu_float_fw_inference(
     const int H, const int W, const int N, const int K, const int D,
-    const T* I, const T* O, const T* dQ, const T scale, T* dP) {
-  CHECK_NOTNULL(I);
-  CHECK_NOTNULL(O);
-  CHECK_NOTNULL(dQ);
-  CHECK_NOTNULL(dP);
+    const float* input, const int* shape, const float* param,
+    float* output, float* workspace);
 
-  cublasHandle_t handle;
-  cublasCreate(&handle);  // TODO: check for errors
-  cudaStream_t stream[4][4];
-  STREAMS_CREATE(4);
+void rnn2d_lstm_gpu_float_fw_training(
+    const int H, const int W, const int N, const int K, const int D,
+    const float* input, const int* shape, const float* param,
+    float* output, float* workspace);
 
-  // dJ/db
-  T* vOnes = nullptr;
-  cudaMalloc(&vOnes, sizeof(T) * H * W * N);
-  fill<T>(H * W * N, vOnes, 1);
-  for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][0]);
-    gemv_gpu<T>(handle, CUBLAS_OP_T, H * W * N, 5 * D,
-                scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                vOnes, 1,
-                1.0, dB_ptr(z, 0, 0), 1);
-  }
+void rnn2d_lstm_gpu_float_bw_workspace(
+    const int H, const int W, const int N, const int K, const int D,
+    const float* input, const int* shape, const float* param,
+    const float* output, const float* workspace, const float* dOutput,
+    float* dWorkspace);
 
-  // dJ/dW
-  for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][1]);
-    gemm_gpu<T>(handle, CUBLAS_OP_T, CUBLAS_OP_N, K, 5 * D, H * W * N,
-                scale, I, K,
-                dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                1.0, dW_ptr(z, 0, 0, 0), 5 * D);
-  }
+void rnn2d_lstm_gpu_float_bw_input(
+    const int H, const int W, const int N, const int K, const int D,
+    const float* param, const float* dWorkspace, const float scale,
+    float* dInput);
 
-  // dJ/dRy
-  for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][2]);
-    for (int y = 0; y < H; ++y) {
-      for (int x = 0; x < W; ++x) {
-        const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
-        if (yp >= 0 && yp < H) {
-          gemm_gpu<T>(handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
-                      scale, O_ptr(yp, x, 0, z, 0), 4 * D,
-                      dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
-                      1.0, dRy_ptr(z, 0, 0, 0), 5 * D);
-        }
-      }
-    }
-  }
+void rnn2d_lstm_gpu_float_bw_param(
+    const int H, const int W, const int N, const int K, const int D,
+    const float* input, const float* output, const float* dWorkspace,
+    const float scale, float* dParam);
 
-  // dJ/dRx
-  for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][3]);
-    for (int y = 0; y < H; ++y) {
-      for (int x = 0; x < W; ++x) {
-        const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
-        if (xp >= 0 && xp < W) {
-          gemm_gpu<T>(handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
-                      scale, O_ptr(y, xp, 0, z, 0), 4 * D,
-                      dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
-                      1.0, dRx_ptr(z, 0, 0, 0), 5 * D);
-        }
-      }
-    }
-  }
+// double
 
-  STREAMS_SYNCHRONIZE(4);
-  STREAMS_DESTROY(4);
-  cublasDestroy(handle);  // TODO: check for errors
-}
+void rnn2d_lstm_gpu_double_fw_inference(
+    const int H, const int W, const int N, const int K, const int D,
+    const double* input, const int* shape, const double* param,
+    double* output, double* workspace);
+
+void rnn2d_lstm_gpu_double_fw_training(
+    const int H, const int W, const int N, const int K, const int D,
+    const double* input, const int* shape, const double* param,
+    double* output, double* workspace);
+
+void rnn2d_lstm_gpu_double_bw_workspace(
+    const int H, const int W, const int N, const int K, const int D,
+    const double* input, const int* shape, const double* param,
+    const double* output, const double* workspace, const double* dOutput,
+    double* dWorkspace);
+
+void rnn2d_lstm_gpu_double_bw_input(
+    const int H, const int W, const int N, const int K, const int D,
+    const double* param, const double* dWorkspace, const double scale,
+    double* dInput);
+
+void rnn2d_lstm_gpu_double_bw_param(
+    const int H, const int W, const int N, const int K, const int D,
+    const double* input, const double* output, const double* dWorkspace,
+    const double scale, double* dParam);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
+
 
 #endif  // RNN2D_LSTM_GPU_H_

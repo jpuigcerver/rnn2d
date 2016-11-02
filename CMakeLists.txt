@@ -15,67 +15,55 @@ IF(OPENMP_FOUND)
   SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 ENDIF()
 FIND_PACKAGE(CUDA)
+INCLUDE_DIRECTORIES(${GLOG_INCLUDE_DIRS})
 
 OPTION(USE_CUDA "Compile binaries with CUDA support" ON)
 
-INCLUDE_DIRECTORIES(${GLOG_INCLUDE_DIRS})
+## CPU library
+ADD_LIBRARY(rnn2d_cpu SHARED lstm_cpu.cc)
+TARGET_LINK_LIBRARIES(rnn2d_cpu ${BLAS_LIBRARIES} ${GLOG_LIBRARIES})
 
-SET(_header_files
-  activation.h
-  lstm_common.h
-  lstm_cpu.h
-  lstm_cpu_kernels.h
-  math_cpu.h
-  utils.h)
-
+## GPU library
 IF(CUDA_FOUND AND USE_CUDA)
-  ADD_DEFINITIONS(-DUSE_CUDA)
   SET(CUDA_PROPAGATE_HOST_FLAGS OFF)
   SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++11 -Xcompiler -Wall")
-  SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -Xcompiler ${OpenMP_CXX_FLAGS}")
   IF (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 5)
     SET(CUDA_NVCC_FLAGS
 	"${CUDA_NVCC_FLAGS} -Xcompiler -D_MWAITXINTRIN_H_INCLUDED")
   ENDIF()
-  CUDA_ADD_LIBRARY(rnn2d SHARED lstm_gpu_kernels.cu lstm_gpu_kernels.h)
-  CUDA_ADD_CUBLAS_TO_TARGET(rnn2d)
-  TARGET_LINK_LIBRARIES(rnn2d ${BLAS_LIBRARIES} ${GLOG_LIBRARIES})
-  SET(_header_files
-    ${_header_files}
-    lstm_gpu.h
-    lstm_gpu_kernels.h
-    math_gpu.h)
+  CUDA_ADD_LIBRARY(rnn2d_gpu SHARED lstm_gpu.cu)
+  CUDA_ADD_CUBLAS_TO_TARGET(rnn2d_gpu)
+  TARGET_LINK_LIBRARIES(rnn2d_gpu ${GLOG_LIBRARIES})
 ENDIF()
 
-ADD_SUBDIRECTORY(torch)
 
 ## TESTS
 IF(GTEST_FOUND AND GMOCK_FOUND)
   INCLUDE_DIRECTORIES(${GTEST_INCLUDE_DIRS})
   INCLUDE_DIRECTORIES(${GMOCK_INCLUDE_DIRS})
 
+  # CPU TESTS
   ADD_EXECUTABLE(lstm_cpu_test lstm_cpu_test.cc)
-  TARGET_LINK_LIBRARIES(lstm_cpu_test
-    ${BLAS_LIBRARIES} ${GLOG_LIBRARIES} ${GMOCK_MAIN_LIBRARIES})
+  TARGET_LINK_LIBRARIES(lstm_cpu_test rnn2d_cpu ${GMOCK_MAIN_LIBRARIES})
   GTEST_ADD_TESTS(lstm_cpu_test "" lstm_cpu_test.cc)
 
+  # GPU TESTS
   IF (CUDA_FOUND AND USE_CUDA)
     CUDA_ADD_EXECUTABLE(lstm_gpu_test lstm_gpu_test.cu)
-    TARGET_LINK_LIBRARIES(lstm_gpu_test
-      ${GLOG_LIBRARIES} ${GMOCK_MAIN_LIBRARIES} rnn2d)
-    CUDA_ADD_CUBLAS_TO_TARGET(lstm_gpu_test)
+    TARGET_LINK_LIBRARIES(lstm_gpu_test rnn2d_gpu ${GMOCK_MAIN_LIBRARIES})
     GTEST_ADD_TESTS(lstm_gpu_test "" lstm_gpu_test.cu)
   ENDIF()
 ENDIF()
 
 ## INSTALL
 INSTALL(FILES
-  ${_header_files}
+  lstm_cpu.h lstm_gpu.h
   DESTINATION include/rnn2d)
 
-IF (TARGET rnn2d)
-  INSTALL(TARGETS rnn2d
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib)
-ENDIF()
+INSTALL(TARGETS
+  rnn2d_cpu rnn2d_gpu
+  RUNTIME DESTINATION bin
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib)
+
+##ADD_SUBDIRECTORY(torch)
