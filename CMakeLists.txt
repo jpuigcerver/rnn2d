@@ -45,13 +45,13 @@ IF(GTEST_FOUND AND GMOCK_FOUND)
   # CPU TESTS
   ADD_EXECUTABLE(lstm_cpu_test lstm_cpu_test.cc)
   TARGET_LINK_LIBRARIES(lstm_cpu_test rnn2d_cpu ${GMOCK_MAIN_LIBRARIES})
-  GTEST_ADD_TESTS(lstm_cpu_test "" lstm_cpu_test.cc)
+  ADD_TEST(lstm_cpu_test lstm_cpu_test)
 
   # GPU TESTS
   IF (CUDA_FOUND AND USE_CUDA)
     CUDA_ADD_EXECUTABLE(lstm_gpu_test lstm_gpu_test.cu)
     TARGET_LINK_LIBRARIES(lstm_gpu_test rnn2d_gpu ${GMOCK_MAIN_LIBRARIES})
-    GTEST_ADD_TESTS(lstm_gpu_test "" lstm_gpu_test.cu)
+    ADD_TEST(lstm_gpu_test lstm_gpu_test)
   ENDIF()
 ENDIF()
 
