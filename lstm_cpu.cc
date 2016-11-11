@@ -31,6 +31,45 @@ inline void copy_dO_to_dC(
 }
 
 template <typename T, typename FG, typename FI, typename FO>
+inline void fw_elemwise_ops(
+    const int H, const int W, const int N, const int D, const int t,
+    const int Tn, const int Tmin, const int* S, T* Q, T* O) {
+  // Compute cell and output values
+  #pragma omp parallel for collapse(4)
+  for (int z = 0; z < 4; ++z) {
+    for (int e = 0; e < Tn; ++e) {
+      for (int n = 0; n < N; ++n) {
+        for (int d = 0; d < D; ++d) {
+          // (y, x) coordinates of the e-th element in the t-th diagonal.
+          const int i = e + Tmin;
+          const int j = t - i;
+          const int y  = (z == 0 || z == 1) ? i : H - i - 1;
+          const int x  = (z == 0 || z == 2) ? j : W - j - 1;
+          const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
+          const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
+          T* C_00 = Q_ptr(z, y, x, n, 5, d);
+          T* O_00 = O_ptr(y, x, n, z, d);
+          if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
+            const T f_a   = FI::f(*Q_ptr(z, y, x, n, 0, d));  // f(input)
+            const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 1, d));  // input gate
+            const T f_go  = FG::f(*Q_ptr(z, y, x, n, 2, d));  // output gate
+            const T f_gfy = FG::f(*Q_ptr(z, y, x, n, 3, d));  // forget_y gate
+            const T f_gfx = FG::f(*Q_ptr(z, y, x, n, 4, d));  // forget_x gate
+            const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
+            const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
+            *C_00 = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;
+            *O_00 = f_go * FO::f(*C_00);
+          } else {
+            *C_00 = 0;
+            *O_00 = 0;
+          }
+        }
+      }
+    }
+  }
+}
+
+template <typename T, typename FG, typename FI, typename FO>
 inline void bw_elemwise_ops(
     const int H, const int W, const int N, const int D, const int t,
     const int Tn, const int Tmin, const int* S, const T* Q, T* dQ) {
@@ -178,37 +217,7 @@ inline void fw_training(
                     1.0, Q_00, 6 * D);
       }
     }
-
-    // Compute cell and output values
-    #pragma omp parallel for
-    for (int e = 0; e < 4 * Tn * N * D; ++e) {
-      const int d = e % D;
-      const int n = (e / D) % N;
-      const int z = (e / (Tn * N * D));
-      // (y, x) coordinates of the e-th element in the t-th diagonal.
-      const int i = ((e / (N * D)) % Tn) + Tmin;
-      const int j = t - i;
-      const int y  = (z == 0 || z == 1) ? i : H - i - 1;
-      const int x  = (z == 0 || z == 2) ? j : W - j - 1;
-      const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
-      const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
-      T* C_00 = Q_ptr(z, y, x, n, 5, d);
-      T* O_00 = O_ptr(y, x, n, z, d);
-      if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
-        const T f_a   = FI::f(*Q_ptr(z, y, x, n, 0, d));  // f(input)
-        const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 1, d));  // input gate
-        const T f_go  = FG::f(*Q_ptr(z, y, x, n, 2, d));  // output gate
-        const T f_gfy = FG::f(*Q_ptr(z, y, x, n, 3, d));  // forget_y gate
-        const T f_gfx = FG::f(*Q_ptr(z, y, x, n, 4, d));  // forget_x gate
-        const T C_10  = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
-        const T C_01  = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
-        *C_00 = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;
-        *O_00 = f_go * FO::f(*C_00);
-      } else {
-        *C_00 = 0;
-        *O_00 = 0;
-      }
-    }
+    fw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q, O);
   }
 }
 
