@@ -5,7 +5,7 @@ static const std::vector<int> S{2, 4, 3, 3};
 
 // LSTM input image.
 template <typename T>
-const std::vector<T>& I() {
+static const std::vector<T>& I() {
   static const std::vector<T> I_{
     // I(y = 0, x = 0)
     0.44,  0.47,  0.64,
@@ -50,7 +50,7 @@ const std::vector<T>& I() {
 
 // Gradients of the loss function w.r.t. the LSTM output image.
 template <typename T>
-const std::vector<T>& dO() {
+static const std::vector<T>& dO() {
   static const std::vector<T> dO_{
     // dO(y = 0, x = 0)
      0.30, -0.73,  0.83,  0.07,  0.21, -0.92,  0.08,  0.43,
@@ -94,7 +94,7 @@ const std::vector<T>& dO() {
 
 // LSTM parameter
 template <typename T>
-const std::vector<T>& P() {
+static const std::vector<T>& P() {
   static const std::vector<T> P_{
     // bias, z = 0
      0.74, -0.18, -0.09,  0.28,  0.42, -0.01, -0.47,  0.40,  0.21,  0.70,
@@ -161,17 +161,17 @@ union HexIEEE {
 
 // Sum of all elements of the output tensor (computed with Theano).
 template <typename T>
-inline T expected_sum_O();
+static inline T expected_sum_O();
 
 // Sum of all elements of the gradient of the loss w.r.t. the input
 // (computed with Theano).
 template <typename T>
-inline T expected_sum_dI();
+static inline T expected_sum_dI();
 
 // Sum of all elements of the gradient of the loss w.r.t. the parameters
 // (computed with Theano).
 template <typename T>
-inline T expected_sum_dP();
+static inline T expected_sum_dP();
 
 template <>
 inline float expected_sum_O<float>() {

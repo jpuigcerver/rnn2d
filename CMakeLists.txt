@@ -1,7 +1,8 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.0)
 PROJECT(rnn2d)
-
 ENABLE_TESTING()
+
+OPTION(USE_CUDA "Compile binaries with CUDA support" ON)
 
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic")
@@ -17,11 +18,25 @@ ENDIF()
 FIND_PACKAGE(CUDA)
 INCLUDE_DIRECTORIES(${GLOG_INCLUDE_DIRS})
 
-OPTION(USE_CUDA "Compile binaries with CUDA support" ON)
+SET(COMMON_LIBRARIES "${GLOG_LIBRARIES}")
+
+FIND_PACKAGE(Perftools)
+IF(Perftools_FOUND)
+  MESSAGE(STATUS "Google Perftools found! Linking with ${Perftools_LIBRARIES}")
+  INCLUDE_DIRECTORIES(${Perftools_INCLUDE_DIRS})
+  LIST(APPEND COMMON_LIBRARIES "${Perftools_LIBRARIES}")
+  IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free")
+  ENDIF()
+  IF (CUDA_FOUND)
+    SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -Xcompiler -fno-builtin-malloc,-fno-builtin-calloc,-fno-builtin-realloc,-fno-builtin-free")
+  ENDIF()
+ENDIF()
+
 
 ## CPU library
 ADD_LIBRARY(rnn2d_cpu SHARED lstm_cpu.cc)
-TARGET_LINK_LIBRARIES(rnn2d_cpu ${BLAS_LIBRARIES} ${GLOG_LIBRARIES})
+TARGET_LINK_LIBRARIES(rnn2d_cpu ${BLAS_LIBRARIES} ${COMMON_LIBRARIES})
 
 ## GPU library
 IF(CUDA_FOUND AND USE_CUDA)
@@ -33,7 +48,7 @@ IF(CUDA_FOUND AND USE_CUDA)
   ENDIF()
   CUDA_ADD_LIBRARY(rnn2d_gpu SHARED lstm_gpu.cu)
   CUDA_ADD_CUBLAS_TO_TARGET(rnn2d_gpu)
-  TARGET_LINK_LIBRARIES(rnn2d_gpu ${GLOG_LIBRARIES})
+  TARGET_LINK_LIBRARIES(rnn2d_gpu ${COMMON_LIBRARIES})
 ENDIF()
 
 
@@ -44,13 +59,13 @@ IF(GTEST_FOUND AND GMOCK_FOUND)
 
   # CPU TESTS
   ADD_EXECUTABLE(lstm_cpu_test lstm_cpu_test.cc)
-  TARGET_LINK_LIBRARIES(lstm_cpu_test rnn2d_cpu ${GMOCK_MAIN_LIBRARIES})
+  TARGET_LINK_LIBRARIES(lstm_cpu_test rnn2d_cpu ${GMOCK_MAIN_LIBRARIES} ${COMMON_LIBRARIES})
   ADD_TEST(lstm_cpu_test lstm_cpu_test)
 
   # GPU TESTS
   IF (CUDA_FOUND AND USE_CUDA)
     CUDA_ADD_EXECUTABLE(lstm_gpu_test lstm_gpu_test.cu)
-    TARGET_LINK_LIBRARIES(lstm_gpu_test rnn2d_gpu ${GMOCK_MAIN_LIBRARIES})
+    TARGET_LINK_LIBRARIES(lstm_gpu_test rnn2d_gpu ${GMOCK_MAIN_LIBRARIES} ${COMMON_LIBRARIES})
     ADD_TEST(lstm_gpu_test lstm_gpu_test)
   ENDIF()
 ENDIF()
@@ -66,4 +81,5 @@ INSTALL(TARGETS
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib)
 
+ADD_SUBDIRECTORY(bench)
 ##ADD_SUBDIRECTORY(torch)
