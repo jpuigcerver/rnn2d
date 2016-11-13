@@ -25,6 +25,12 @@ inline cublasStatus_t gemm_gpu(
     T beta, T* C, int ldc);
 
 template <typename T>
+inline cublasStatus_t gemm_gpu_batched(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, T alpha, const T** A, int lda, const T** B, int ldb,
+    T beta, T** C, int ldc, int batch_size);
+
+template <typename T>
 inline cublasStatus_t gemv_gpu(
     cublasHandle_t handle, cublasOperation_t op, int m, int n, T alpha,
     const T* A, int lda, const T* x, int incx, T beta, T* y, int incy);
@@ -60,6 +66,38 @@ inline cublasStatus_t gemm_gpu<__half>(
   return cublasHgemm(handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta,
                      C, ldc);
 }
+
+template <>
+inline cublasStatus_t gemm_gpu_batched<float>(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, float alpha, const float** A, int lda,
+    const float** B, int ldb, float beta, float** C, int ldc, int batch_size) {
+  return cublasSgemmBatched(
+      handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta, C, ldc,
+      batch_size);
+}
+
+template <>
+inline cublasStatus_t gemm_gpu_batched<double>(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, double alpha, const double** A, int lda,
+    const double** B, int ldb, double beta, double** C, int ldc,
+    int batch_size) {
+  return cublasDgemmBatched(
+      handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta, C, ldc,
+      batch_size);
+}
+
+/*template <>
+inline cublasStatus_t gemm_gpu_batched<__half>(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, __half alpha, const __half** A, int lda,
+    const __half** B, int ldb, __half beta, __half** C, int ldc,
+    int batch_size) {
+  return cublasHgemmBatched(
+      handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta, C, ldc,
+      batch_size);
+}*/
 
 template <>
 inline cublasStatus_t gemv_gpu<float>(

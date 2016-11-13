@@ -4,34 +4,30 @@
 #include <cmath>
 #include <cassert>
 #include <cstdio>
+
 #include <glog/logging.h>
+#include <thrust/device_vector.h>
 
 #include "activation.h"
 #include "cuda_utils.h"
 #include "lstm_common.h"
 #include "math_gpu.h"
 
-#define MAX_STREAMS 1024
+#define NUM_THREADS 1024
 
 #define STREAMS_CREATE(N)                               \
-  for (int z = 0; z < 4; ++z) {                         \
-    for (int e = 0; e < (N); ++e) {                     \
-      CHECK_CUDA_CALL(cudaStreamCreate(&stream[z][e])); \
-    }                                                   \
+  for (int i = 0; i < (N); ++i) {                       \
+    CHECK_CUDA_CALL(cudaStreamCreate(&stream[i]));      \
   }
 
 #define STREAMS_DESTROY(N)                              \
-  for (int z = 0; z < 4; ++z) {                         \
-    for (int e = 0; e < (N); ++e) {                     \
-      CHECK_CUDA_CALL(cudaStreamDestroy(stream[z][e])); \
-    }                                                   \
+  for (int i = 0; i < (N); ++i) {                       \
+    CHECK_CUDA_CALL(cudaStreamDestroy(stream[i]));      \
   }
 
 #define STREAMS_SYNCHRONIZE(N)                                  \
-  for (int z = 0; z < 4; ++z) {                                 \
-    for (int e = 0; e < (N); ++e) {                             \
-      CHECK_CUDA_CALL(cudaStreamSynchronize(stream[z][e]));     \
-    }                                                           \
+  for (int i = 0; i < (N); ++i) {                               \
+    CHECK_CUDA_CALL(cudaStreamSynchronize(stream[i]));          \
   }
 
 template <typename T>
@@ -182,74 +178,103 @@ inline void fw_training(
   CHECK_NOTNULL(P);
   CHECK_NOTNULL(O);
   CHECK_NOTNULL(Q);
-  const int NSZ = std::max(std::min(std::min(H, W), MAX_STREAMS), 4);
   // Prepare cublas handler and streams
   cublasHandle_t handle;
   CHECK_CUBLAS_CALL(cublasCreate(&handle));
-  cudaStream_t stream[4][MAX_STREAMS];
-  STREAMS_CREATE(NSZ);
 
   // Initialize gates with bias
-  kernel_init_Q_with_bias<T><<<DIV_UP(4 * H * W * N * 5 * D, 512), 512>>>(
-      H, W, N, K, D, P, Q);
+  kernel_init_Q_with_bias<T>
+      <<<DIV_UP(4 * H * W * N * 5 * D, NUM_THREADS), NUM_THREADS>>>(
+          H, W, N, K, D, P, Q);
   CHECK_LAST_CUDA_CALL();
 
   // Multiply inputs by weights.
-  for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][0]);
-    CHECK_CUBLAS_CALL(
-        gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, H * W * N, 5 * D, K,
-                    1.0, I, K,
-                    W_ptr(z, 0, 0, 0), 5 * D,
-                    1.0, Q_ptr(z, 0, 0, 0, 0, 0), 6 * D));
+  {
+    thrust::device_vector<const T*> I_batched_gpu(
+        std::vector<const T*>{I, I, I, I});
+    thrust::device_vector<const T*> W_batched_gpu(
+        std::vector<const T*>{
+          W_ptr(0, 0, 0, 0), W_ptr(1, 0, 0, 0),
+          W_ptr(2, 0, 0, 0), W_ptr(3, 0, 0, 0)
+        });
+    thrust::device_vector<T*> Q_batched_gpu(
+        std::vector<T*>{
+          Q_ptr(0, 0, 0, 0, 0, 0), Q_ptr(1, 0, 0, 0, 0, 0),
+          Q_ptr(2, 0, 0, 0, 0, 0), Q_ptr(3, 0, 0, 0, 0, 0)
+        });
+    CHECK_CUBLAS_CALL(gemm_gpu_batched<T>(
+        handle, CUBLAS_OP_N, CUBLAS_OP_N,
+        H * W * N, 5 * D, K,
+        1.0, I_batched_gpu.data().get(), K,
+        W_batched_gpu.data().get(), 5 * D,
+        1.0, Q_batched_gpu.data().get(), 6 * D, 4));
   }
-
-  // Synchronize streams
-  STREAMS_SYNCHRONIZE(1);
 
   // Process the image diagonal-wise (there are H + W - 1 diagonals to process)
-  for (int t = 0; t < H + W - 1; ++t) {
-    // Compute number of elements in the u-th diagonal
-    const int Tmin = std::max(0, t - W + 1);
-    const int Tmax = std::min(t, H - 1);
-    const int Tn   = (Tmax - Tmin) + 1;
+  {
+    std::vector<const T*> Ox_batched, Oy_batched;
+    std::vector<const T*> Rx_batched, Ry_batched;
+    std::vector<T*> Qx_batched, Qy_batched;
+    thrust::device_vector<const T*> Ox_batched_gpu, Oy_batched_gpu;
+    thrust::device_vector<const T*> Rx_batched_gpu, Ry_batched_gpu;
+    thrust::device_vector<T*> Qx_batched_gpu, Qy_batched_gpu;
+    for (int t = 0; t < H + W - 1; ++t) {
+      Ox_batched.clear(); Oy_batched.clear();
+      Rx_batched.clear(); Ry_batched.clear();
+      Qx_batched.clear(); Qy_batched.clear();
 
-    for (int z = 0; z < 4; ++z) {
-      for (int e = 0; e < Tn; ++e) {
-        CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z][e % NSZ]));
-        // (y, x) coordinates of the e-th element in the z-th diagonal.
-        const int i = e + Tmin;
-        const int j = t - i;
-        const int y  = (z == 0 || z == 1) ? i : H - i - 1;
-        const int x  = (z == 0 || z == 2) ? j : W - j - 1;
-        const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
-        const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
-        T* Q_00 = Q_ptr(z, y, x, 0, 0, 0);
-        if (yp >= 0 && yp <= H - 1) {
-          const T* O_10 = O_ptr(yp, x, 0, z, 0);
-          CHECK_CUBLAS_CALL(
-              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
-                          1.0, O_10, 4 * D,
-                          Ry_ptr(z, 0, 0, 0), 5 * D,
-                          1.0, Q_00, 6 * D));
-        }
-        if (xp >= 0 && xp <= W - 1) {
-          const T* O_01 = O_ptr(y, xp, 0, z, 0);
-          CHECK_CUBLAS_CALL(
-              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
-                          1.0, O_01, 4 * D,
-                          Rx_ptr(z, 0, 0, 0), 5 * D,
-                          1.0, Q_00, 6 * D));
+      // Compute number of elements in the u-th diagonal
+      const int Tmin = std::max(0, t - W + 1);
+      const int Tmax = std::min(t, H - 1);
+      const int Tn   = (Tmax - Tmin) + 1;
+      for (int z = 0; z < 4; ++z) {
+        for (int e = 0; e < Tn; ++e) {
+          // (y, x) coordinates of the e-th element in the z-th diagonal.
+          const int i = e + Tmin;
+          const int j = t - i;
+          const int y  = (z == 0 || z == 1) ? i : H - i - 1;
+          const int x  = (z == 0 || z == 2) ? j : W - j - 1;
+          const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
+          const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
+          if (xp >= 0 && xp <= W - 1) {
+            Ox_batched.push_back(O_ptr(y, xp, 0, z, 0));
+            Rx_batched.push_back(Rx_ptr(z, 0, 0, 0));
+            Qx_batched.push_back(Q_ptr(z, y, x, 0, 0, 0));
+          }
+          if (yp >= 0 && yp <= H - 1) {
+            Oy_batched.push_back(O_ptr(yp, x, 0, z, 0));
+            Ry_batched.push_back(Ry_ptr(z, 0, 0, 0));
+            Qy_batched.push_back(Q_ptr(z, y, x, 0, 0, 0));
+          }
         }
       }
+
+      Rx_batched_gpu.assign(Rx_batched.begin(), Rx_batched.end());
+      Ry_batched_gpu.assign(Ry_batched.begin(), Ry_batched.end());
+      Ox_batched_gpu.assign(Ox_batched.begin(), Ox_batched.end());
+      Oy_batched_gpu.assign(Oy_batched.begin(), Oy_batched.end());
+      Qx_batched_gpu.assign(Qx_batched.begin(), Qx_batched.end());
+      Qy_batched_gpu.assign(Qy_batched.begin(), Qy_batched.end());
+      CHECK_CUBLAS_CALL(
+          gemm_gpu_batched<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
+                              1.0, Oy_batched_gpu.data().get(), 4 * D,
+                              Ry_batched_gpu.data().get(), 5 * D,
+                              1.0, Qy_batched_gpu.data().get(), 6 * D,
+                              Qy_batched_gpu.size()));
+      CHECK_CUBLAS_CALL(
+          gemm_gpu_batched<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
+                              1.0, Ox_batched_gpu.data().get(), 4 * D,
+                              Rx_batched_gpu.data().get(), 5 * D,
+                              1.0, Qx_batched_gpu.data().get(), 6 * D,
+                              Qx_batched_gpu.size()));
+      kernel_fw_elemwise_ops<T, FG, FI, FO>
+          <<<DIV_UP(4 * Tn * N * D, NUM_THREADS), NUM_THREADS>>>(
+              H, W, N, D, t, Tn, Tmin, S, Q, O);
+      CHECK_LAST_CUDA_CALL();
     }
-    STREAMS_SYNCHRONIZE(Tn);
-    kernel_fw_elemwise_ops<T, FG, FI, FO><<<DIV_UP(4 * Tn * N * D, 512), 512>>>(
-        H, W, N, D, t, Tn, Tmin, S, Q, O);
   }
 
-  STREAMS_DESTROY(NSZ);
-  CHECK_CUBLAS_CALL(cublasDestroy(handle));  // TODO: check for errors
+  CHECK_CUBLAS_CALL(cublasDestroy(handle));
 }
 
 
@@ -278,57 +303,77 @@ inline void bw_workspace(
   CHECK_NOTNULL(Q);
   CHECK_NOTNULL(dO);
   CHECK_NOTNULL(dQ);
-  const int NSZ = std::max(std::min(std::min(H, W), MAX_STREAMS), 4);
   // Prepare cublas handler and streams
   cublasHandle_t handle;
   CHECK_CUBLAS_CALL(cublasCreate(&handle));
-  cudaStream_t stream[4][MAX_STREAMS];
-  STREAMS_CREATE(NSZ);
 
   // Process the image diagonal-wise, in backwards order (there are H + W - 1
   // diagonals to process)
-  for (int t = H + W - 2; t >= 0; --t) {
-    // Compute number of elements in the diagonal
-    const int Tmin = std::max(0, t - W + 1);
-    const int Tmax = std::min(t, H - 1);
-    const int Tn   = (Tmax - Tmin) + 1;
-    kernel_copy_dO_to_dC<T><<<DIV_UP(4 * Tn * N * D, 512), 512>>>(
-        H, W, N, D, t, Tn, Tmin, dO, dQ);
-    CHECK_LAST_CUDA_CALL();
+  {
+    std::vector<const T*> dQx_batched, dQy_batched;
+    std::vector<const T*> Rx_batched, Ry_batched;
+    std::vector<T*> dQx2_batched, dQy2_batched;
+    thrust::device_vector<const T*> dQx_batched_gpu, dQy_batched_gpu;
+    thrust::device_vector<const T*> Rx_batched_gpu, Ry_batched_gpu;
+    thrust::device_vector<T*> dQx2_batched_gpu, dQy2_batched_gpu;
+    for (int t = H + W - 2; t >= 0; --t) {
+      dQx_batched.clear(); dQy_batched.clear();
+      Rx_batched.clear(); Ry_batched.clear();
+      dQx2_batched.clear(); dQy2_batched.clear();
 
-    for (int z = 0; z < 4; ++z) {
-      for (int e = 0; e < Tn; ++e) {
-        CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z][e % NSZ]));
-        const int i = e + Tmin;
-        const int j = t - i;
-        const int y  = (z == 0 || z == 1) ? i : H - i - 1;
-        const int x  = (z == 0 || z == 2) ? j : W - j - 1;
-        const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
-        const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
-        if (yn >= 0 && yn < H) {
-          CHECK_CUBLAS_CALL(
-              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
-                          1.0, dQ_ptr(z, yn, x, 0, 0, 0), 6 * D,
-                          Ry_ptr(z, 0, 0, 0), 5 * D,
-                          1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D));
-        }
-        if (xn >= 0 && xn < W) {
-          CHECK_CUBLAS_CALL(
-              gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
-                          1.0, dQ_ptr(z, y, xn, 0, 0, 0), 6 * D,
-                          Rx_ptr(z, 0, 0, 0), 5 * D,
-                          1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D));
+      // Compute number of elements in the diagonal
+      const int Tmin = std::max(0, t - W + 1);
+      const int Tmax = std::min(t, H - 1);
+      const int Tn   = (Tmax - Tmin) + 1;
+      kernel_copy_dO_to_dC<T>
+          <<<DIV_UP(4 * Tn * N * D, NUM_THREADS), NUM_THREADS>>>(
+              H, W, N, D, t, Tn, Tmin, dO, dQ);
+      CHECK_LAST_CUDA_CALL();
+
+      for (int z = 0; z < 4; ++z) {
+        for (int e = 0; e < Tn; ++e) {
+          const int i = e + Tmin;
+          const int j = t - i;
+          const int y  = (z == 0 || z == 1) ? i : H - i - 1;
+          const int x  = (z == 0 || z == 2) ? j : W - j - 1;
+          const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
+          const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
+          if (xn >= 0 && xn < W) {
+            dQx_batched.push_back(dQ_ptr(z, y, xn, 0, 0, 0));
+            Rx_batched.push_back(Rx_ptr(z, 0, 0, 0));
+            dQx2_batched.push_back(dQ_ptr(z, y, x, 0, 5, 0));
+          }
+          if (yn >= 0 && yn < H) {
+            dQy_batched.push_back(dQ_ptr(z, yn, x, 0, 0, 0));
+            Ry_batched.push_back(Ry_ptr(z, 0, 0, 0));
+            dQy2_batched.push_back(dQ_ptr(z, y, x, 0, 5, 0));
+          }
         }
       }
+
+      Rx_batched_gpu.assign(Rx_batched.begin(), Rx_batched.end());
+      Ry_batched_gpu.assign(Ry_batched.begin(), Ry_batched.end());
+      dQx_batched_gpu.assign(dQx_batched.begin(), dQx_batched.end());
+      dQy_batched_gpu.assign(dQy_batched.begin(), dQy_batched.end());
+      dQx2_batched_gpu.assign(dQx2_batched.begin(), dQx2_batched.end());
+      dQy2_batched_gpu.assign(dQy2_batched.begin(), dQy2_batched.end());
+      CHECK_CUBLAS_CALL(gemm_gpu_batched<T>(
+          handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
+          1.0, dQx_batched_gpu.data().get(), 6 * D,
+          Rx_batched_gpu.data().get(), 5 * D,
+          1.0, dQx2_batched_gpu.data().get(), 6 * D, dQx2_batched_gpu.size()));
+      CHECK_CUBLAS_CALL(gemm_gpu_batched<T>(
+          handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
+          1.0, dQy_batched_gpu.data().get(), 6 * D,
+          Ry_batched_gpu.data().get(), 5 * D,
+          1.0, dQy2_batched_gpu.data().get(), 6 * D, dQy2_batched_gpu.size()));
+      kernel_bw_elemwise_ops< T, FG, FI, FO >
+          <<<DIV_UP(4 * Tn * N * D, NUM_THREADS), NUM_THREADS>>>(
+              H, W, N, D, t, Tn, Tmin, S, Q, dQ);
+      CHECK_LAST_CUDA_CALL();
     }
-    STREAMS_SYNCHRONIZE(Tn);
-    kernel_bw_elemwise_ops< T, FG, FI, FO >
-        <<<DIV_UP(4 * Tn * N * D, 512), 512>>>(
-            H, W, N, D, t, Tn, Tmin, S, Q, dQ);
-    CHECK_LAST_CUDA_CALL();
   }
 
-  STREAMS_DESTROY(NSZ);
   CHECK_CUBLAS_CALL(cublasDestroy(handle));
 }
 
@@ -341,14 +386,15 @@ inline void bw_input(
   CHECK_NOTNULL(dI);
   // dJ/dI(y,x)
   cublasHandle_t handle;
-  cublasCreate(&handle);  // TODO: check for errors
+  CHECK_CUBLAS_CALL(cublasCreate(&handle));
   for (int z = 0; z < 4; ++z) {
-    gemm_gpu<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, H * W * N, K, 5 * D,
-                scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                W_ptr(z, 0, 0, 0), 5 * D,
-                1.0, dI, K);
+    CHECK_CUBLAS_CALL(gemm_gpu<T>(
+        handle, CUBLAS_OP_N, CUBLAS_OP_T, H * W * N, K, 5 * D,
+        scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
+        W_ptr(z, 0, 0, 0), 5 * D,
+        1.0, dI, K));
   }
-  cublasDestroy(handle);  // TODO: check for errors
+  CHECK_CUBLAS_CALL(cublasDestroy(handle));
 }
 
 template <typename T>
@@ -361,43 +407,47 @@ inline void bw_param(
   CHECK_NOTNULL(dP);
 
   cublasHandle_t handle;
-  cublasCreate(&handle);  // TODO: check for errors
-  cudaStream_t stream[4][4];
-  STREAMS_CREATE(4);
+  CHECK_CUBLAS_CALL(cublasCreate(&handle));
+  cudaStream_t stream[4 * 4];
+  STREAMS_CREATE(4 * 4);
 
   // dJ/db
   T* vOnes = nullptr;
   cudaMalloc(&vOnes, sizeof(T) * H * W * N);
-  kernel_fill<T><<<DIV_UP(H * W * N, 512), 512>>>(H * W * N, vOnes, 1);
+  kernel_fill<T>
+      <<<DIV_UP(H * W * N, NUM_THREADS), NUM_THREADS>>>(H * W * N, vOnes, 1);
   CHECK_LAST_CUDA_CALL();
   for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][0]);
-    gemv_gpu<T>(handle, CUBLAS_OP_T, H * W * N, 5 * D,
-                scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                vOnes, 1,
-                1.0, dB_ptr(z, 0, 0), 1);
+    cublasSetStream(handle, stream[z * 4 + 0]);
+    CHECK_CUBLAS_CALL(gemv_gpu<T>(
+        handle, CUBLAS_OP_T, H * W * N, 5 * D,
+        scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
+        vOnes, 1,
+        1.0, dB_ptr(z, 0, 0), 1));
   }
 
   // dJ/dW
   for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][1]);
-    gemm_gpu<T>(handle, CUBLAS_OP_T, CUBLAS_OP_N, K, 5 * D, H * W * N,
-                scale, I, K,
-                dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                1.0, dW_ptr(z, 0, 0, 0), 5 * D);
+    cublasSetStream(handle, stream[z * 4 + 1]);
+    CHECK_CUBLAS_CALL(gemm_gpu<T>(
+        handle, CUBLAS_OP_T, CUBLAS_OP_N, K, 5 * D, H * W * N,
+        scale, I, K,
+        dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
+        1.0, dW_ptr(z, 0, 0, 0), 5 * D));
   }
 
   // dJ/dRy
   for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][2]);
+    cublasSetStream(handle, stream[z * 4 + 2]);
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
         const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
         if (yp >= 0 && yp < H) {
-          gemm_gpu<T>(handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
-                      scale, O_ptr(yp, x, 0, z, 0), 4 * D,
-                      dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
-                      1.0, dRy_ptr(z, 0, 0, 0), 5 * D);
+          CHECK_CUBLAS_CALL(gemm_gpu<T>(
+              handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
+              scale, O_ptr(yp, x, 0, z, 0), 4 * D,
+              dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
+              1.0, dRy_ptr(z, 0, 0, 0), 5 * D));
         }
       }
     }
@@ -405,22 +455,23 @@ inline void bw_param(
 
   // dJ/dRx
   for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z][3]);
+    cublasSetStream(handle, stream[z * 4 + 3]);
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
         const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
         if (xp >= 0 && xp < W) {
-          gemm_gpu<T>(handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
-                      scale, O_ptr(y, xp, 0, z, 0), 4 * D,
-                      dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
-                      1.0, dRx_ptr(z, 0, 0, 0), 5 * D);
+          CHECK_CUBLAS_CALL(gemm_gpu<T>(
+              handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
+              scale, O_ptr(y, xp, 0, z, 0), 4 * D,
+              dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
+              1.0, dRx_ptr(z, 0, 0, 0), 5 * D));
         }
       }
     }
   }
 
-  STREAMS_SYNCHRONIZE(4);
-  STREAMS_DESTROY(4);
+  STREAMS_SYNCHRONIZE(4 * 4);
+  STREAMS_DESTROY(4 * 4);
   cublasDestroy(handle);  // TODO: check for errors
 }
 
