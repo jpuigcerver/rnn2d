@@ -1,0 +1,7 @@
+This directory contains some reference implementations using Theano, that were
+used to check my implementation.
+
+These implementations are most likely pretty dumb, mainly because I do not
+master Theano (not at all). I just wanted some way to check that I implemented
+the backprop equations properly, without computing the gradients numerically.
+So don't use them for serious businesses!
