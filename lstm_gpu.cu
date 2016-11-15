@@ -413,12 +413,12 @@ inline void bw_param(
 
   // dJ/db
   T* vOnes = nullptr;
-  cudaMalloc(&vOnes, sizeof(T) * H * W * N);
+  CHECK_CUDA_CALL(cudaMalloc(&vOnes, sizeof(T) * H * W * N));
   kernel_fill<T>
       <<<DIV_UP(H * W * N, NUM_THREADS), NUM_THREADS>>>(H * W * N, vOnes, 1);
   CHECK_LAST_CUDA_CALL();
   for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z * 4 + 0]);
+    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z * 4 + 0]));
     CHECK_CUBLAS_CALL(gemv_gpu<T>(
         handle, CUBLAS_OP_T, H * W * N, 5 * D,
         scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
@@ -428,7 +428,7 @@ inline void bw_param(
 
   // dJ/dW
   for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z * 4 + 1]);
+    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z * 4 + 1]));
     CHECK_CUBLAS_CALL(gemm_gpu<T>(
         handle, CUBLAS_OP_T, CUBLAS_OP_N, K, 5 * D, H * W * N,
         scale, I, K,
@@ -438,7 +438,7 @@ inline void bw_param(
 
   // dJ/dRy
   for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z * 4 + 2]);
+    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z * 4 + 2]));
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
         const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
@@ -455,7 +455,7 @@ inline void bw_param(
 
   // dJ/dRx
   for (int z = 0; z < 4; ++z) {
-    cublasSetStream(handle, stream[z * 4 + 3]);
+    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z * 4 + 3]));
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
         const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
@@ -472,7 +472,7 @@ inline void bw_param(
 
   STREAMS_SYNCHRONIZE(4 * 4);
   STREAMS_DESTROY(4 * 4);
-  cublasDestroy(handle);  // TODO: check for errors
+  CHECK_CUBLAS_CALL(cublasDestroy(handle));
 }
 
 extern "C" {

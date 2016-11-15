@@ -1,6 +1,8 @@
 #ifndef RNN2D_LSTM_GPU_H_
 #define RNN2D_LSTM_GPU_H_
 
+#include "lstm_helper.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -1,5 +1,7 @@
 #include <vector>
 
+#define MAX_ERROR 1E-5
+
 static const int H = 3, W = 4, N = 2, K = 3, D = 2;
 static const std::vector<int> S{2, 4, 3, 3};
 

@@ -4,12 +4,10 @@
 #include "lstm_cpu.h"
 #include "lstm_common_test.h"
 
-#define MAX_ERROR 1E-5
-
 #define DEFINE_CPU_TESTS(TYPE)                                          \
   TEST(lstm_test, rnn2d_lstm_cpu_ ## TYPE  ## _fw) {                    \
-    std::vector<TYPE> O(H * W * N * 4 * D);                             \
-    std::vector<TYPE> Q(4 * H * W * N * 6  * D);                        \
+    std::vector<TYPE> O(RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D));            \
+    std::vector<TYPE> Q(RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D));         \
     rnn2d_lstm_cpu_ ## TYPE ## _fw_inference(                           \
         H, W, N, K, D, I<TYPE>().data(), S.data(), P<TYPE>().data(),    \
         O.data(), Q.data());                                            \
@@ -18,11 +16,11 @@
     EXPECT_NEAR(expected_sum_O<TYPE>(), sum_O, MAX_ERROR);              \
   }                                                                     \
   TEST(lstm_test, rnn2d_lstm_cpu_ ## TYPE ## _bw) {                     \
-    std::vector<TYPE> O(H * W * N * 4 * D);                             \
-    std::vector<TYPE> Q(4 * H * W * N * 6 * D);                         \
-    std::vector<TYPE> dQ(4 * H * W * N * 6 * D);                        \
-    std::vector<TYPE> dI(H * W * N * K);                                \
-    std::vector<TYPE> dP(4 * (1 + K + D + D) * 5 * D);                  \
+    std::vector<TYPE> O(RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D));            \
+    std::vector<TYPE> Q(RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D));         \
+    std::vector<TYPE> dQ(RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D));        \
+    std::vector<TYPE> dI(RNN2D_LSTM_INPUT_SIZE(H, W, N, K));            \
+    std::vector<TYPE> dP(RNN2D_LSTM_PARAMETERS_SIZE(K, D));             \
     /* First, forward pass in training mode. */                         \
     rnn2d_lstm_cpu_ ## TYPE ## _fw_training(                            \
         H, W, N, K, D, I<TYPE>().data(), S.data(), P<TYPE>().data(),    \

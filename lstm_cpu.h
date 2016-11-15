@@ -1,6 +1,8 @@
 #ifndef RNN2D_LSTM_CPU_H_
 #define RNN2D_LSTM_CPU_H_
 
+#include "lstm_helper.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

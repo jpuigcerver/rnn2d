@@ -25,15 +25,32 @@ inline cublasStatus_t gemm_gpu(
     T beta, T* C, int ldc);
 
 template <typename T>
+inline cublasStatus_t gemm_gpu(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, const T* alpha, const T* A, int lda,
+    const T* B, int ldb, const T* beta, T* C, int ldc);
+
+template <typename T>
 inline cublasStatus_t gemm_gpu_batched(
     cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
     int m, int n, int k, T alpha, const T** A, int lda, const T** B, int ldb,
     T beta, T** C, int ldc, int batch_size);
 
 template <typename T>
+inline cublasStatus_t gemm_gpu_batched(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, const T* alpha, const T** A, int lda,
+    const T** B, int ldb, const T* beta, T** C, int ldc, int batch_size);
+
+template <typename T>
 inline cublasStatus_t gemv_gpu(
     cublasHandle_t handle, cublasOperation_t op, int m, int n, T alpha,
     const T* A, int lda, const T* x, int incx, T beta, T* y, int incy);
+
+template <typename T>
+inline cublasStatus_t gemv_gpu(
+    cublasHandle_t handle, cublasOperation_t op, int m, int n, const T* alpha,
+    const T* A, int lda, const T* x, int incx, const T* beta, T* y, int incy);
 
 
 /*****************************************************************************
@@ -45,6 +62,9 @@ inline cublasStatus_t gemm_gpu<float>(
     cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
     int m, int n, int k, float alpha, const float* A, int lda,
     const float* B, int ldb, float beta, float* C, int ldc) {
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_HOST);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
   return cublasSgemm(handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta,
                      C, ldc);
 }
@@ -54,6 +74,9 @@ inline cublasStatus_t gemm_gpu<double>(
     cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
     int m, int n, int k, double alpha, const double* A, int lda,
     const double* B, int ldb, double beta, double* C, int ldc) {
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_HOST);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
   return cublasDgemm(handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta,
                      C, ldc);
 }
@@ -63,7 +86,46 @@ inline cublasStatus_t gemm_gpu<__half>(
     cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
     int m, int n, int k, __half alpha, const __half* A, int lda,
     const __half* B, int ldb, __half beta, __half* C, int ldc) {
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_HOST);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
   return cublasHgemm(handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta,
+                     C, ldc);
+}
+
+template <>
+inline cublasStatus_t gemm_gpu<float>(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, const float* alpha, const float* A, int lda,
+    const float* B, int ldb, const float* beta, float* C, int ldc) {
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
+  return cublasSgemm(handle, opB, opA, n, m, k, alpha, B, ldb, A, lda, beta,
+                     C, ldc);
+}
+
+template <>
+inline cublasStatus_t gemm_gpu<double>(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, const double* alpha, const double* A, int lda,
+    const double* B, int ldb, const double* beta, double* C, int ldc) {
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
+  return cublasDgemm(handle, opB, opA, n, m, k, alpha, B, ldb, A, lda, beta,
+                     C, ldc);
+}
+
+template <>
+inline cublasStatus_t gemm_gpu<__half>(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, const __half* alpha, const __half* A, int lda,
+    const __half* B, int ldb, const __half* beta, __half* C, int ldc) {
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
+  return cublasHgemm(handle, opB, opA, n, m, k, alpha, B, ldb, A, lda, beta,
                      C, ldc);
 }
 
@@ -72,6 +134,9 @@ inline cublasStatus_t gemm_gpu_batched<float>(
     cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
     int m, int n, int k, float alpha, const float** A, int lda,
     const float** B, int ldb, float beta, float** C, int ldc, int batch_size) {
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_HOST);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
   return cublasSgemmBatched(
       handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta, C, ldc,
       batch_size);
@@ -83,21 +148,41 @@ inline cublasStatus_t gemm_gpu_batched<double>(
     int m, int n, int k, double alpha, const double** A, int lda,
     const double** B, int ldb, double beta, double** C, int ldc,
     int batch_size) {
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_HOST);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
   return cublasDgemmBatched(
       handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta, C, ldc,
       batch_size);
 }
 
-/*template <>
-inline cublasStatus_t gemm_gpu_batched<__half>(
+template <>
+inline cublasStatus_t gemm_gpu_batched<float>(
     cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
-    int m, int n, int k, __half alpha, const __half** A, int lda,
-    const __half** B, int ldb, __half beta, __half** C, int ldc,
+    int m, int n, int k, const float* alpha, const float** A, int lda,
+    const float** B, int ldb, const float* beta, float** C, int ldc,
     int batch_size) {
-  return cublasHgemmBatched(
-      handle, opB, opA, n, m, k, &alpha, B, ldb, A, lda, &beta, C, ldc,
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
+  return cublasSgemmBatched(
+      handle, opB, opA, n, m, k, alpha, B, ldb, A, lda, beta, C, ldc,
       batch_size);
-}*/
+}
+
+template <>
+inline cublasStatus_t gemm_gpu_batched<double>(
+    cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
+    int m, int n, int k, const double* alpha, const double** A, int lda,
+    const double** B, int ldb, const double* beta, double** C, int ldc,
+    int batch_size) {
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
+  return cublasDgemmBatched(
+      handle, opB, opA, n, m, k, alpha, B, ldb, A, lda, beta, C, ldc,
+      batch_size);
+}
 
 template <>
 inline cublasStatus_t gemv_gpu<float>(
@@ -105,6 +190,9 @@ inline cublasStatus_t gemv_gpu<float>(
     const float* A, int lda, const float* x, int incx, float beta, float* y,
     int incy) {
   op = op == CUBLAS_OP_N ? CUBLAS_OP_T : CUBLAS_OP_N;
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_HOST);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
   return cublasSgemv(handle, op, n, m, &alpha, A, lda, x, incx, &beta, y, incy);
 }
 
@@ -114,19 +202,34 @@ inline cublasStatus_t gemv_gpu<double>(
     const double* A, int lda, const double* x, int incx, double beta, double* y,
     int incy) {
   op = op == CUBLAS_OP_N ? CUBLAS_OP_T : CUBLAS_OP_N;
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_HOST);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
   return cublasDgemv(handle, op, n, m, &alpha, A, lda, x, incx, &beta, y, incy);
 }
 
-// TODO: Add custom support for gemv for __half type, cublasHgemv does not
-// exist with CUDA 7.5...
-/*
 template <>
-inline cublasStatus_t gemv_gpu<__half>(
-    cublasHandle_t handle, cublasOperation_t op, int m, int n, __half alpha,
-    const __half* A, int lda, const __half* x, int incx, __half beta, __half* y,
-    int incy) {
+inline cublasStatus_t gemv_gpu<float>(
+    cublasHandle_t handle, cublasOperation_t op, int m, int n,
+    const float* alpha, const float* A, int lda, const float* x, int incx,
+    const float* beta, float* y, int incy) {
   op = op == CUBLAS_OP_N ? CUBLAS_OP_T : CUBLAS_OP_N;
-  return cublasHgemv(handle, op, n, m, &alpha, A, lda, x, incx, &beta, y, incy);
-}*/
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
+  return cublasSgemv(handle, op, n, m, alpha, A, lda, x, incx, beta, y, incy);
+}
+
+template <>
+inline cublasStatus_t gemv_gpu<double>(
+    cublasHandle_t handle, cublasOperation_t op, int m, int n,
+    const double* alpha, const double* A, int lda, const double* x, int incx,
+    const double* beta, double* y,  int incy) {
+  op = op == CUBLAS_OP_N ? CUBLAS_OP_T : CUBLAS_OP_N;
+  const cublasStatus_t stat =
+      cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+  if (stat != CUBLAS_STATUS_SUCCESS) return stat;
+  return cublasDgemv(handle, op, n, m, alpha, A, lda, x, incx, beta, y, incy);
+}
 
 #endif  // RNN2D_MATH_GPU_H_
