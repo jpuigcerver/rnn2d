@@ -35,7 +35,7 @@
     /* Derivative w.r.t. the parameters. */                             \
     rnn2d_lstm_cpu_ ## TYPE ## _bw_param(                               \
         H, W, N, K, D, I<TYPE>().data(), O.data(), dQ.data(),           \
-        1.0, dP.data());                                                \
+        1.0, Q.data(), dP.data());                                      \
     const TYPE sum_dI = std::accumulate(                                \
         dI.begin(), dI.end(), static_cast<TYPE>(0));                    \
     EXPECT_NEAR(expected_sum_dI<TYPE>(), sum_dI, MAX_ERROR);            \

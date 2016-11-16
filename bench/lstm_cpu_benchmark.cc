@@ -1,6 +1,5 @@
 #include <benchmark/benchmark.h>
 
-#include "../lstm_cpu.h"
 #include "lstm_common_benchmark.h"
 
 DEFINE_BENCHMARK(cpu, float);

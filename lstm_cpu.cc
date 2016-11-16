@@ -319,18 +319,20 @@ inline void bw_input(
 template <typename T>
 inline void bw_param(
     const int H, const int W, const int N, const int K, const int D,
-    const T* I, const T* O, const T* dQ, const T scale, T* dP) {
+    const T* I, const T* O, const T* dQ, const T scale, T* Q, T* dP) {
   CHECK_NOTNULL(I);
   CHECK_NOTNULL(O);
   CHECK_NOTNULL(dQ);
+  CHECK_NOTNULL(Q);
   CHECK_NOTNULL(dP);
   // dJ/db
-  const std::vector<T> vOnes(H * W * N, 1);
+  T* vOnes = Q;
+  std::fill(vOnes, vOnes + H * W * N, static_cast<T>(1));
   #pragma omp parallel for
   for (int z = 0; z < 4; ++z) {
     gemv_cpu<T>('T', H * W * N, 5 * D,
                 scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                vOnes.data(), 1,
+                vOnes, 1,
                 1.0, dB_ptr(z, 0, 0), 1);
   }
 

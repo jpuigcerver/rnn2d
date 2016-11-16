@@ -1,6 +1,5 @@
 #include <benchmark/benchmark.h>
 
-#include "../lstm_gpu.h"
 #include "lstm_common_benchmark.h"
 
 DEFINE_BENCHMARK(gpu, float);

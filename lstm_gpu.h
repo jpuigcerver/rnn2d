@@ -33,7 +33,7 @@ void rnn2d_lstm_gpu_float_bw_input(
 void rnn2d_lstm_gpu_float_bw_param(
     const int H, const int W, const int N, const int K, const int D,
     const float* input, const float* output, const float* dWorkspace,
-    const float scale, float* dParam);
+    const float scale, float* workspace, float* dParam);
 
 // double
 
@@ -61,7 +61,7 @@ void rnn2d_lstm_gpu_double_bw_input(
 void rnn2d_lstm_gpu_double_bw_param(
     const int H, const int W, const int N, const int K, const int D,
     const double* input, const double* output, const double* dWorkspace,
-    const double scale, double* dParam);
+    const double scale, double* workspace, double* dParam);
 
 #ifdef __cplusplus
 }  // extern "C"

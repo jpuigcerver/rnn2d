@@ -11,7 +11,7 @@
  * Gfy(y,x) = I(y,x) * W_fy + O(y-1,x) * R_fyy + O(y,x-1) * R_fyx + B_fy
  * Gfx(y,x) = I(y,x) * W_fx + O(y-1,x) * R_fxy + O(y,x-1) * R_fxx + B_fx
  * C(y,x)   = s(Gi(y,x))  · g(A(y,x)) +
- *            s(Gfy(y,x)) · C(y-1,x)    +
+ *            s(Gfy(y,x)) · C(y-1,x)  +
  *            s(Gfx(y,x)) · C(y,x-1)
  * O(y,x)   = s(Go(y,x))  · g(C(y,x))
  *
@@ -140,9 +140,10 @@
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param(                 \
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const TYPE* output, const TYPE* dWorkspace,    \
-      const TYPE scale, TYPE* dParam) {                                 \
+      const TYPE scale, TYPE* workspace, TYPE* dParam) {                \
     bw_param< TYPE >(                                                   \
-        H, W, N, K, D, input, output, dWorkspace, scale, dParam);       \
+        H, W, N, K, D, input, output, dWorkspace, scale, workspace,     \
+        dParam);                                                        \
   }
 
 #endif  // RNN2D_LSTM_COMMON_H_

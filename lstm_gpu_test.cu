@@ -47,7 +47,8 @@
     /* Derivative w.r.t. the parameters. */                             \
     rnn2d_lstm_gpu_ ## TYPE ## _bw_param(                               \
         H, W, N, K, D, I_gpu.data().get(), O_gpu.data().get(),          \
-        dQ_gpu.data().get(), 1.0, dP_gpu.data().get());                 \
+        dQ_gpu.data().get(), 1.0, Q_gpu.data().get(),                   \
+        dP_gpu.data().get());                                           \
     const TYPE sum_dI = thrust::reduce(                                 \
         dI_gpu.begin(), dI_gpu.end(), static_cast<TYPE>(0));            \
     EXPECT_NEAR(expected_sum_dI<TYPE>(), sum_dI, MAX_ERROR);            \
