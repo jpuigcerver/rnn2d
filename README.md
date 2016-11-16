@@ -21,7 +21,7 @@ that I am currently using.
    Deep Learning frameworks (i.e. Tensorflow, Theano, Torch, etc).
 
 ## Available layers:
-- [2D-LSTM](https://github.com/jpuigcerver/rnn2d/wiki/LSTM-2D)
+- [LSTM-2D](https://github.com/jpuigcerver/rnn2d/wiki/LSTM-2D)
 
 ## Requirements:
 
