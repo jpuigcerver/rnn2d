@@ -41,7 +41,8 @@
 #define Q_ptr(z, y, x, n, g, d)                                 \
   (Q  + (((((z) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
 #define dQ_ptr(z, y, x, n, g, d)                                \
-  (dQ + (((((z) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
+  (Q + (4 * H * W * N * 6 * D) + \
+   (((((z) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
 
 #define B_ptr(z, g, d)                                  \
   (P  + (z) * (1 + K + D + D) * 5 * D + (g) * D + (d))
@@ -122,28 +123,25 @@
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_workspace(             \
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const int* shape, const TYPE* param,           \
-      const TYPE* output, const TYPE* workspace, const TYPE* dOutput,   \
-      TYPE* dWorkspace) {                                               \
+      const TYPE* output, const TYPE* dOutput, TYPE* workspace) {       \
     bw_workspace< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(        \
-        H, W, N, K, D, input, shape, param, output, workspace, dOutput, \
-        dWorkspace);                                                    \
+        H, W, N, K, D, input, shape, param, output, dOutput,            \
+        workspace);                                                     \
   }                                                                     \
                                                                         \
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_input(                 \
       const int H, const int W, const int N, const int K, const int D,  \
-      const TYPE* param, const TYPE* dWorkspace, const TYPE scale,      \
-      TYPE* dInput) {                                                   \
-    bw_input< TYPE >(                                                   \
-        H, W, N, K, D, param, dWorkspace, scale, dInput);               \
+      const TYPE* param, const TYPE scale, TYPE* dInput,                \
+      TYPE* workspace) {                                                \
+    bw_input< TYPE >(H, W, N, K, D, param, scale, dInput, workspace);   \
   }                                                                     \
                                                                         \
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param(                 \
       const int H, const int W, const int N, const int K, const int D,  \
-      const TYPE* input, const TYPE* output, const TYPE* dWorkspace,    \
-      const TYPE scale, TYPE* workspace, TYPE* dParam) {                \
-    bw_param< TYPE >(                                                   \
-        H, W, N, K, D, input, output, dWorkspace, scale, workspace,     \
-        dParam);                                                        \
+      const TYPE* input, const TYPE* output, const TYPE scale,          \
+      TYPE* dParam, TYPE* workspace) {                                  \
+    bw_param< TYPE >(H, W, N, K, D, input, output, scale, dParam,       \
+                     workspace);                                        \
   }
 
 #endif  // RNN2D_LSTM_COMMON_H_

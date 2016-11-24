@@ -13,8 +13,14 @@
 // IMPORTANT: This is the number of elements, not bytes!
 #define RNN2D_LSTM_PARAMETERS_SIZE(K, D) (4 * (1 + (K) + (D) + (D)) * 5 * (D))
 
-// Expected size for the LSTM2D workspace buffer.
+// Expected size for the LSTM2D workspace buffer, during inference.
 // IMPORTANT: This is the number of elements, not bytes!
-#define RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D) (4 * (H) * (W) * (N) * 6 * (D))
+#define RNN2D_LSTM_WORKSPACE_INFERENCE_SIZE(H, W, N, D) \
+  (4 * (H) * (W) * (N) * 6 * (D))
+
+// Expected size for the LSTM2D workspace buffer, during training.
+// IMPORTANT: This is the number of elements, not bytes!
+#define RNN2D_LSTM_WORKSPACE_TRAINING_SIZE(H, W, N, D)  \
+  (2 * 4 * (H) * (W) * (N) * 6 * (D))
 
 #endif  // RNN2D_LSTM_HELPER_H_

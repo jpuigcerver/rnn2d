@@ -13,7 +13,7 @@
 template <typename T>
 inline void copy_dO_to_dC(
     const int H, const int W, const int N, const int D,
-    const int t, const int Tn, const int Tmin, const T* dO, T* dQ) {
+    const int t, const int Tn, const int Tmin, const T* dO, T* Q) {
   #pragma omp parallel for collapse(4)
   for (int z = 0; z < 4; ++z) {
     for (int e = 0; e < Tn; ++e) {
@@ -72,7 +72,7 @@ inline void fw_elemwise_ops(
 template <typename T, typename FG, typename FI, typename FO>
 inline void bw_elemwise_ops(
     const int H, const int W, const int N, const int D, const int t,
-    const int Tn, const int Tmin, const int* S, const T* Q, T* dQ) {
+    const int Tn, const int Tmin, const int* S, T* Q) {
   #pragma omp parallel for collapse(4)
   for (int z = 0; z < 4; ++z) {
     for (int e = 0; e < Tn; ++e) {
@@ -239,14 +239,12 @@ inline void fw_training(
 template <typename T, typename FG, typename FI, typename FO>
 inline void bw_workspace(
     const int H, const int W, const int N, const int K, const int D,
-    const T* I, const int* S, const T* P, const T* O, const T* Q, const T* dO,
-    T* dQ) {
+    const T* I, const int* S, const T* P, const T* O, const T* dO, T* Q) {
   CHECK_NOTNULL(I);
   CHECK_NOTNULL(P);
   CHECK_NOTNULL(O);
-  CHECK_NOTNULL(Q);
   CHECK_NOTNULL(dO);
-  CHECK_NOTNULL(dQ);
+  CHECK_NOTNULL(Q);
   // Process the image diagonal-wise, in backwards order
   // (there are H + W - 1 diagonals to process)
   for (int t = H + W - 2; t >= 0; --t) {
@@ -255,7 +253,7 @@ inline void bw_workspace(
     const int Tmax = std::min(t, H - 1);
     const int Tn   = (Tmax - Tmin) + 1;
 
-    copy_dO_to_dC<T>(H, W, N, D, t, Tn, Tmin, dO, dQ);
+    copy_dO_to_dC<T>(H, W, N, D, t, Tn, Tmin, dO, Q);
 
     // Note: All elements in the diagonal could be processed in parallel.
     // However, a OpenMP parallel for was not used here because the internal
@@ -291,7 +289,7 @@ inline void bw_workspace(
                     1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D);
       }
     }
-    bw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q, dQ);
+    bw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q);
   }
 }
 
@@ -299,10 +297,10 @@ inline void bw_workspace(
 template <typename T>
 inline void bw_input(
     const int H, const int W, const int N, const int K, const int D,
-    const T* P, const T* dQ, const T scale, T* dI) {
+    const T* P, const T scale, T* dI, T* Q) {
   CHECK_NOTNULL(P);
-  CHECK_NOTNULL(dQ);
   CHECK_NOTNULL(dI);
+  CHECK_NOTNULL(Q);
   // dJ/dI(y,x)
   for (int z = 0; z < 4; ++z) {
     /* dQ reshaped as (H * W * N) x (6 * D), but only the first 5 * D columns
@@ -319,12 +317,11 @@ inline void bw_input(
 template <typename T>
 inline void bw_param(
     const int H, const int W, const int N, const int K, const int D,
-    const T* I, const T* O, const T* dQ, const T scale, T* Q, T* dP) {
+    const T* I, const T* O, const T scale, T* dP, T* Q) {
   CHECK_NOTNULL(I);
   CHECK_NOTNULL(O);
-  CHECK_NOTNULL(dQ);
-  CHECK_NOTNULL(Q);
   CHECK_NOTNULL(dP);
+  CHECK_NOTNULL(Q);
   // dJ/db
   T* vOnes = Q;
   std::fill(vOnes, vOnes + H * W * N, static_cast<T>(1));

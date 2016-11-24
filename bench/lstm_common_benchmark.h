@@ -38,12 +38,12 @@ static void AllocateData(
   LOG(INFO) << "Input/output size: H = " << H << ", W = " << W << ", N = "
             << N << ", K = " << K << ", D = " << D;
   const size_t ALL_DATA_SIZE =
+      2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +
       2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +
       2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +
-      2 * RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D) +
-      2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D);
+      RNN2D_LSTM_WORKSPACE_TRAINING_SIZE(H, W, N, D);
   const float ALL_DATA_SIZE_MB =
-      (4 + 8) * (ALL_DATA_SIZE) / static_cast<float>(2 << 20);
+      (4 + 8) * (ALL_DATA_SIZE) / static_cast<float>(1 << 20);
   LOG(INFO) << "Allocating " << ALL_DATA_SIZE_MB << "MB in the CPU memory...";
   DATA_cpu_float.resize(ALL_DATA_SIZE);
   DATA_cpu_double.resize(ALL_DATA_SIZE);
@@ -80,20 +80,44 @@ static void DeallocateData() {
 }
 
 #define DEFINE_BENCHMARK(DEVICE, TYPE)                                  \
+  static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference(         \
+      benchmark::State& state) {                                        \
+    const int H = DEFAULT_H, W = DEFAULT_W;                             \
+    const int N = DEFAULT_N, K = DEFAULT_K, D = DEFAULT_D;              \
+    const TYPE* param = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE);      \
+    const TYPE* input = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +     \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D);        /* input offset */ \
+    TYPE* output = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +          \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D)  +      /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K);      /* output offset */ \
+    TYPE* workspace = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +       \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
+        2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
+    while (state.KeepRunning()) {                                       \
+      rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference(              \
+          H, W, N, K, D, input, nullptr, param, output, workspace);     \
+    }                                                                   \
+    state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
+  }                                                                     \
+  BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference)           \
+  ->Unit(benchmark::kMillisecond)                                       \
+  ->UseRealTime();                                                      \
+                                                                        \
   static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _fw_training(          \
       benchmark::State& state) {                                        \
     const int H = DEFAULT_H, W = DEFAULT_W;                             \
     const int N = DEFAULT_N, K = DEFAULT_K, D = DEFAULT_D;              \
-    const TYPE* input = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE);      \
-    const TYPE* param = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +     \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K);       /* param offset */     \
+    const TYPE* param = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE);      \
+    const TYPE* input = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +     \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D);        /* input offset */ \
     TYPE* output = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +          \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +      /* param offset */     \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D);        /* output offset */    \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D)  +      /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K);      /* output offset */ \
     TYPE* workspace = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +       \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +      /* param offset */     \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* output offset */    \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);      /* workspace offset */ \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
+        2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
     while (state.KeepRunning()) {                                       \
       rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_training(               \
           H, W, N, K, D, input, nullptr, param, output, workspace);     \
@@ -108,31 +132,24 @@ static void DeallocateData() {
       benchmark::State& state) {                                        \
     const int H = DEFAULT_H, W = DEFAULT_W;                             \
     const int N = DEFAULT_N, K = DEFAULT_K, D = DEFAULT_D;              \
-    const TYPE* input = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE);      \
-    const TYPE* param = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +     \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K);      /* param offset */      \
-    const TYPE* gradOutput = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +      \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* param offset */      \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D);       /* gradOutput offset */ \
-    const TYPE* output = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +          \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* param offset */      \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +      /* gradOutput offset */ \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);     /* output offset */     \
-    const TYPE* workspace = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +       \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* param offset */      \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +      /* gradOutput offset */ \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* output offset */     \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);     /* workspace offset */  \
-    TYPE* gradWorkspace = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +         \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* param offset */      \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +      /* gradOutput offset */ \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* output offset */     \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* workspace offset */  \
-        RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D);  /* gradWork offset */   \
+    const TYPE* param = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE);      \
+    const TYPE* input = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +     \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D);        /* input offset */ \
+    const TYPE* output = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +    \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D)  +      /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K);      /* output offset */ \
+    const TYPE* gOutput = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +   \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D)  +      /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
+        RNN2D_LSTM_OUTPUT_SIZE(H, W, K, K);        /* gOutput offset */ \
+    TYPE* workspace = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +       \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
+        2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
     while (state.KeepRunning()) {                                       \
       rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_workspace(               \
-          H, W, N, K, D, input, nullptr, param, output, workspace,      \
-          gradOutput, gradWorkspace);                                   \
+          H, W, N, K, D, input, nullptr, param, output, gOutput,        \
+          workspace);                                                   \
     }                                                                   \
     state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
   }                                                                     \
@@ -140,29 +157,46 @@ static void DeallocateData() {
   ->Unit(benchmark::kMillisecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
+  static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param(             \
+      benchmark::State& state) {                                        \
+    const int H = DEFAULT_H, W = DEFAULT_W;                             \
+    const int N = DEFAULT_N, K = DEFAULT_K, D = DEFAULT_D;              \
+    TYPE* gradParam = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +       \
+        RNN2D_LSTM_PARAMETERS_SIZE(K, D);        /* gradParam offset */ \
+    const TYPE* input = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +     \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D);        /* input offset */ \
+    const TYPE* output = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +    \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K);      /* output offset */ \
+    TYPE* workspace = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +       \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
+        2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
+    while (state.KeepRunning()) {                                       \
+      rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_param(                   \
+      H, W, N, K, D, input, output, 1.0, gradParam, workspace);         \
+    }                                                                   \
+    state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
+  }                                                                     \
+  BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param)               \
+  ->Unit(benchmark::kMillisecond)                                       \
+  ->UseRealTime();                                                      \
+                                                                        \
   static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_input(             \
       benchmark::State& state) {                                        \
     const int H = DEFAULT_H, W = DEFAULT_W;                             \
     const int N = DEFAULT_N, K = DEFAULT_K, D = DEFAULT_D;              \
-    const TYPE* param = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +     \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K);      /* param offset */      \
-    const TYPE* gradWorkspace = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +   \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* param offset */      \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +      /* gradOutput offset */ \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* output offset */     \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* workspace offset */  \
-        RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D);  /* gradWork offset */   \
+    const TYPE* param = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE);      \
     TYPE* gradInput = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +             \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* param offset */      \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +      /* gradOutput offset */ \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* output offset */     \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* workspace offset */  \
-        RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D) + /* gradWork offset */   \
-        RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D) + /* gradParam offset */  \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D);      /* gradInput offset */   \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +  /* gradOutput offset */ \
+        RNN2D_LSTM_INPUT_SIZE(H, W, N, K);      /* param offset */      \
+    TYPE* workspace = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +       \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
+        2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
     while (state.KeepRunning()) {                                       \
       rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_input(                   \
-          H, W, N, K, D, param, gradWorkspace, 1.0, gradInput);         \
+          H, W, N, K, D, param, 1.0, gradInput, workspace);             \
     }                                                                   \
     state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
   }                                                                     \
@@ -170,40 +204,41 @@ static void DeallocateData() {
   ->Unit(benchmark::kMillisecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
-  static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param(             \
+  static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_ALL(               \
       benchmark::State& state) {                                        \
     const int H = DEFAULT_H, W = DEFAULT_W;                             \
     const int N = DEFAULT_N, K = DEFAULT_K, D = DEFAULT_D;              \
-    const TYPE* input = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE);      \
-    const TYPE* output = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +          \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* param offset */      \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +      /* gradOutput offset */ \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);     /* output offset */     \
-    const TYPE* gradWorkspace = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +   \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* param offset */      \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +      /* gradOutput offset */ \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* output offset */     \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* workspace offset */  \
-        RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D);  /* gradWork offset */   \
+    const TYPE* param = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE);      \
+    TYPE* gradParam = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +       \
+        RNN2D_LSTM_PARAMETERS_SIZE(K, D);        /* gradParam offset */ \
+    const TYPE* input = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +     \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D);        /* input offset */ \
+    TYPE* gradInput = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +             \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +  /* gradOutput offset */ \
+        RNN2D_LSTM_INPUT_SIZE(H, W, N, K);      /* param offset */      \
+    const TYPE* output = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +    \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D)  +      /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K);      /* output offset */ \
+    const TYPE* gOutput = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +   \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D)  +      /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
+        RNN2D_LSTM_OUTPUT_SIZE(H, W, K, K);        /* gOutput offset */ \
     TYPE* workspace = VECTOR_DATA(DATA_ ## DEVICE ## _ ## TYPE) +       \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +      /* param offset */     \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* output offset */    \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);      /* workspace offset */ \
-    TYPE* gradParam = VECTOR_DATA(DATA_##DEVICE##_##TYPE) +             \
-        RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* param offset */      \
-        RNN2D_LSTM_PARAMETERS_SIZE(K, D) +      /* gradOutput offset */ \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* output offset */     \
-        RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D) +    /* workspace offset */  \
-        RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D) + /* gradWork offset */   \
-        RNN2D_LSTM_WORKSPACE_SIZE(H, W, N, D);  /* gradParam offset */  \
+        2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
+        2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
+        2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
     while (state.KeepRunning()) {                                       \
+      rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_workspace(               \
+          H, W, N, K, D, input, nullptr, param, output, gOutput,        \
+          workspace);                                                   \
       rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_param(                   \
-          H, W, N, K, D, input, output, gradWorkspace, 1.0, workspace,  \
-          gradParam);                                                   \
+          H, W, N, K, D, input, output, 1.0, gradParam, workspace);     \
+      rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_input(                   \
+          H, W, N, K, D, param, 1.0, gradInput, workspace);             \
     }                                                                   \
     state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
   }                                                                     \
-  BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param)               \
+  BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_ALL)                 \
   ->Unit(benchmark::kMillisecond)                                       \
   ->UseRealTime()
 

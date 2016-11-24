@@ -22,18 +22,16 @@ void rnn2d_lstm_gpu_float_fw_training(
 void rnn2d_lstm_gpu_float_bw_workspace(
     const int H, const int W, const int N, const int K, const int D,
     const float* input, const int* shape, const float* param,
-    const float* output, const float* workspace, const float* dOutput,
-    float* dWorkspace);
+    const float* output, const float* dOutput, float* workspace);
 
 void rnn2d_lstm_gpu_float_bw_input(
     const int H, const int W, const int N, const int K, const int D,
-    const float* param, const float* dWorkspace, const float scale,
-    float* dInput);
+    const float* param, const float scale, float* dInput, float* workspace);
 
 void rnn2d_lstm_gpu_float_bw_param(
     const int H, const int W, const int N, const int K, const int D,
-    const float* input, const float* output, const float* dWorkspace,
-    const float scale, float* workspace, float* dParam);
+    const float* input, const float* output, const float scale,
+    float* dParam, float* workspace);
 
 // double
 
@@ -50,18 +48,16 @@ void rnn2d_lstm_gpu_double_fw_training(
 void rnn2d_lstm_gpu_double_bw_workspace(
     const int H, const int W, const int N, const int K, const int D,
     const double* input, const int* shape, const double* param,
-    const double* output, const double* workspace, const double* dOutput,
-    double* dWorkspace);
+    const double* output, const double* dOutput, double* workspace);
 
 void rnn2d_lstm_gpu_double_bw_input(
     const int H, const int W, const int N, const int K, const int D,
-    const double* param, const double* dWorkspace, const double scale,
-    double* dInput);
+    const double* param, const double scale, double* dInput, double* workspace);
 
 void rnn2d_lstm_gpu_double_bw_param(
     const int H, const int W, const int N, const int K, const int D,
-    const double* input, const double* output, const double* dWorkspace,
-    const double scale, double* workspace, double* dParam);
+    const double* input, const double* output, const double scale,
+    double* dParam, double* workspace);
 
 #ifdef __cplusplus
 }  // extern "C"

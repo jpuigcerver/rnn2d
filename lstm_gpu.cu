@@ -102,7 +102,7 @@ template <typename T, typename FG, typename FI, typename FO>
 __global__
 void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
                             const int t, const int Tn, const int Tmin,
-                            const int* S, const T* Q, T* dQ) {
+                            const int* S, T* Q) {
   for (int ii = thGi; ii < 4 * Tn * N * D; ii += NTGx) {
     const int d = ii % D;
     const int n = (ii / D) % N;
@@ -159,7 +159,7 @@ template <typename T>
 __global__
 void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
                           const int t, const int Tn, const int Tmin,
-                          const T* dO, T* dQ) {
+                          const T* dO, T* Q) {
   for (int ii = thGi; ii < 4 * Tn * N * D; ii += NTGx) {
     const int d = ii % D;
     const int n = (ii / D) % N;
@@ -335,14 +335,13 @@ inline void fw_training(
 template <typename T, typename FG, typename FI, typename FO>
 inline void bw_workspace(
     const int H, const int W, const int N, const int K, const int D,
-    const T* I, const int* S, const T* P, const T* O, const T* Q, const T* dO,
-    T* dQ) {
+    const T* I, const int* S, const T* P, const T* O, const T* dO,
+    T* Q) {
   CHECK_NOTNULL(I);
   CHECK_NOTNULL(P);
   CHECK_NOTNULL(O);
-  CHECK_NOTNULL(Q);
   CHECK_NOTNULL(dO);
-  CHECK_NOTNULL(dQ);
+  CHECK_NOTNULL(Q);
   // Prepare cublas handler and streams
   cublasHandle_t handle;
   CHECK_CUBLAS_CALL(cublasCreate(&handle));
@@ -367,7 +366,7 @@ inline void bw_workspace(
       const int Tn   = (Tmax - Tmin) + 1;
       kernel_copy_dO_to_dC<T>
           <<<NUM_BLOCKS(4 * Tn * N * D, BLOCK_SIZE1D), BLOCK_SIZE1D>>>(
-              H, W, N, D, t, Tn, Tmin, dO, dQ);
+              H, W, N, D, t, Tn, Tmin, dO, Q);
       CHECK_LAST_CUDA_CALL();
 
       for (int z = 0; z < 4; ++z) {
@@ -409,7 +408,7 @@ inline void bw_workspace(
           1.0, dQy2_batched_gpu.data().get(), 6 * D, dQy2_batched_gpu.size()));
       kernel_bw_elemwise_ops< T, FG, FI, FO >
           <<<NUM_BLOCKS(4 * Tn * N * D, BLOCK_SIZE1D), BLOCK_SIZE1D>>>(
-              H, W, N, D, t, Tn, Tmin, S, Q, dQ);
+              H, W, N, D, t, Tn, Tmin, S, Q);
       CHECK_LAST_CUDA_CALL();
     }
   }
@@ -420,10 +419,10 @@ inline void bw_workspace(
 template <typename T>
 inline void bw_input(
     const int H, const int W, const int N, const int K, const int D,
-    const T* P, const T* dQ, const T scale, T* dI) {
+    const T* P, const T scale, T* dI, T* Q) {
   CHECK_NOTNULL(P);
-  CHECK_NOTNULL(dQ);
   CHECK_NOTNULL(dI);
+  CHECK_NOTNULL(Q);
   // dJ/dI(y,x)
   cublasHandle_t handle;
   CHECK_CUBLAS_CALL(cublasCreate(&handle));
@@ -440,12 +439,11 @@ inline void bw_input(
 template <typename T>
 inline void bw_param(
     const int H, const int W, const int N, const int K, const int D,
-    const T* I, const T* O, const T* dQ, const T scale, T* Q, T* dP) {
+    const T* I, const T* O, const T scale, T* dP, T* Q) {
   CHECK_NOTNULL(I);
   CHECK_NOTNULL(O);
-  CHECK_NOTNULL(dQ);
-  CHECK_NOTNULL(Q);
   CHECK_NOTNULL(dP);
+  CHECK_NOTNULL(Q);
 
   cublasHandle_t handle;
   CHECK_CUBLAS_CALL(cublasCreate(&handle));
