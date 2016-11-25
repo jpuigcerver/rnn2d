@@ -173,28 +173,38 @@ void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
   }
 }
 
-// Note: size(Ot) >= 4 * Tn * N * 2 * D
-//       size(Rt) >= 4 * 2 * D * 5 * D
 template <typename T>
 __global__
-void kernel_prepare_OtRt(
-    const int H, const int W, const int N, const int D,
-    const int t, const int Tn, const int Tmin,
-    const T* O, const T* Rx, const T* Ry, T* Ot, T* Rt) {
-  if (thGi >= 4 * ((Tn * N * 2 * D) + (2 * D * 5 * D))) return;
-  if (thGi % 2 == 0) {
-    // Fill Ot
-
-  } else {
-    // Fill Rt
+void kernel_copy_Oxp_to_Q(const int H, const int W, const int N, const int D,
+                          const T* O, T* Q) {
+  for (int ii = thGi; ii < 4 * H * W * N * D; ii += NTGx) {
+    const int d = ii % D;
+    const int n = (ii / D) % N;
+    const int x = (ii / (N * D)) % W;
+    const int y = (ii / (W * N * D)) % H;
+    const int z = ii / (H * W * N * D);
+    const int xp = (z == 0 || z == 2) ? x - 1 : x + 1; // previous x
+    /* Q[(z * D * H * W * N) + (d * H * W * N) + (y * W * N) + (x * N + n)] =
+       xp >= 0 && xp < W ? *O_ptr(y, xp, n, z, d) : 0; */
+    Q[(z * H * W * N * D) + (y * W * N * D) + (x * N * D) + (n * D) + d] =
+        xp >= 0 && xp < W ? *O_ptr(y, xp, n, z, d) : 0;
   }
 }
 
 template <typename T>
 __global__
-void kernel_transpose(const int n, const int m, T* x) {
-  //__shared__ float tile[];
-
+void kernel_copy_Oyp_to_Q(const int H, const int W, const int N, const int D,
+                          const T* O, T* Q) {
+  for (int ii = thGi; ii < 4 * H * W * N * D; ii += NTGx) {
+    const int d = ii % D;
+    const int n = (ii / D) % N;
+    const int x = (ii / (N * D)) % W;
+    const int y = (ii / (W * N * D)) % H;
+    const int z = ii / (H * W * N * D);
+    const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
+    Q[(z * H * W * N * D) + (y * W * N * D) + (x * N * D) + (n * D) + d] =
+        yp >= 0 && yp < H ? *O_ptr(yp, x, n, z, d) : 0;
+  }
 }
 
 
@@ -456,7 +466,7 @@ inline void bw_param(
       <<<DIV_UP(H * W * N, BLOCK_SIZE1D), BLOCK_SIZE1D>>>(H * W * N, vOnes, 1);
   CHECK_LAST_CUDA_CALL();
   for (int z = 0; z < 4; ++z) {
-    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z * 4 + 0]));
+    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z]));
     CHECK_CUBLAS_CALL(gemv_gpu<T>(
         handle, CUBLAS_OP_T, H * W * N, 5 * D,
         scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
@@ -466,7 +476,7 @@ inline void bw_param(
 
   // dJ/dW
   for (int z = 0; z < 4; ++z) {
-    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z * 4 + 1]));
+    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[4 + z]));
     CHECK_CUBLAS_CALL(gemm_gpu<T>(
         handle, CUBLAS_OP_T, CUBLAS_OP_N, K, 5 * D, H * W * N,
         scale, I, K,
@@ -474,38 +484,38 @@ inline void bw_param(
         1.0, dW_ptr(z, 0, 0, 0), 5 * D));
   }
 
-  // dJ/dRy
-  for (int z = 0; z < 4; ++z) {
-    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z * 4 + 2]));
-    for (int y = 0; y < H; ++y) {
-      for (int x = 0; x < W; ++x) {
-        const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
-        if (yp >= 0 && yp < H) {
-          CHECK_CUBLAS_CALL(gemm_gpu<T>(
-              handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
-              scale, O_ptr(yp, x, 0, z, 0), 4 * D,
-              dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
-              1.0, dRy_ptr(z, 0, 0, 0), 5 * D));
-        }
-      }
-    }
-  }
+  // translate the output tensor in the x-dimension
+  T* Oxp = Q + H * W * N;
+  kernel_copy_Oxp_to_Q
+      <<<DIV_UP(4 * H * W * N * D, BLOCK_SIZE1D), BLOCK_SIZE1D, 0, stream[8]>>>
+      (H, W, N, D, O, Oxp);
+  // translate the output tensor in the y-dimension
+  T* Oyp = Q + H * W * N + 4 * H * W * N * D;
+  kernel_copy_Oyp_to_Q
+      <<<DIV_UP(4 * H * W * N * D, BLOCK_SIZE1D), BLOCK_SIZE1D, 0, stream[9]>>>
+      (H, W, N, D, O, Oyp);
+  // wait for data copies
+  CHECK_CUDA_CALL(cudaStreamSynchronize(stream[8]));
+  CHECK_CUDA_CALL(cudaStreamSynchronize(stream[9]));
 
   // dJ/dRx
   for (int z = 0; z < 4; ++z) {
-    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z * 4 + 3]));
-    for (int y = 0; y < H; ++y) {
-      for (int x = 0; x < W; ++x) {
-        const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
-        if (xp >= 0 && xp < W) {
-          CHECK_CUBLAS_CALL(gemm_gpu<T>(
-              handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, N,
-              scale, O_ptr(y, xp, 0, z, 0), 4 * D,
-              dQ_ptr(z, y, x, 0, 0, 0), 6 * D,
-              1.0, dRx_ptr(z, 0, 0, 0), 5 * D));
-        }
-      }
-    }
+    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[8 + z]));
+    CHECK_CUBLAS_CALL(gemm_gpu<T>(
+        handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, H * W * N,
+        scale, Oxp + z * H * W * N * D, D,
+        dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
+        1.0, dRx_ptr(z, 0, 0, 0), 5 * D));
+  }
+
+  // dJ/dRy
+  for (int z = 0; z < 4; ++z) {
+    CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[12 + z]));
+    CHECK_CUBLAS_CALL(gemm_gpu<T>(
+        handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, H * W * N,
+        scale, Oyp + z * H * W * N * D, D,
+        dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
+        1.0, dRy_ptr(z, 0, 0, 0), 5 * D));
   }
 
   STREAMS_SYNCHRONIZE(4 * 4);
