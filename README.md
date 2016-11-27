@@ -30,8 +30,9 @@ that I am currently using.
 - Google Logging (Glog)
 - BLAS implementation (ATLAS, OpenBLAS, Intel MKL, etc)
 - If you want the GPU implementation:
-  - CUDA 
-  - cuBLAS
+  - CUDA toolkit
+  - cuBLAS 2 (included with CUDA toolkit >= 6.0)
+  - Thurst (included with CUDA toolkit >= 6.0)
 
 It's also recommended (but not required) to have the following packages:
 
