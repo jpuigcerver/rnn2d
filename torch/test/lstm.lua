@@ -88,10 +88,10 @@ function generic_test(t)
   lstm2d:zeroGradParameters()
   local output = lstm2d:forward(input)
   local gradInput = lstm2d:backward(input, gradOutput)
---  tester:assertalmosteq(output:sum(), -6.70230436325073242, 1E-5,
---			'checksum for lstm2d output failed')
---  tester:assertalmosteq(gradInput:sum(), 6.54379034042358398, 1E-5,
---			'checksum for lstm2d gradInput failed')
+  tester:assertalmosteq(output:sum(), -6.70230436325073242, 1E-5,
+			'checksum for lstm2d output failed')
+  tester:assertalmosteq(gradInput:sum(), 6.54379034042358398, 1E-5,
+			'checksum for lstm2d gradInput failed')
 end
 
 function lstm2dtest.testFloat()
@@ -105,7 +105,10 @@ end
 function lstm2dtest.testCudaFloat()
   generic_test('torch.CudaTensor')
 end
-generic_test('torch.CudaTensor')
 
---tester:add(lstm2dtest)
---tester:run()
+function lstm2dtest.testCudaDouble()
+  generic_test('torch.CudaDoubleTensor')
+end
+
+tester:add(lstm2dtest)
+tester:run()

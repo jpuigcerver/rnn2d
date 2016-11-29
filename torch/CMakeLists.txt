@@ -9,15 +9,15 @@ IF (Torch_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}")
 
   ADD_LIBRARY(rnn2d_torch MODULE
-    binding.cc binding.h
+    binding.cc
     utils.c utils.h)
-  TARGET_LINK_LIBRARIES(rnn2d_torch
-    luajit luaT TH ${GLOG_LIBRARIES} ${BLAS_LIBRARIES})
+  TARGET_LINK_LIBRARIES(rnn2d_torch rnn2d_cpu luajit luaT TH)
 
   SET(REQUIRE_CUNN "")
   IF (CUDA_FOUND AND USE_CUDA)
+    TARGET_COMPILE_DEFINITIONS(rnn2d_torch PRIVATE USE_CUDA)
     CUDA_ADD_CUBLAS_TO_TARGET(rnn2d_torch)
-    TARGET_LINK_LIBRARIES(rnn2d_torch rnn2d THC ${CUDA_LIBRARIES})
+    TARGET_LINK_LIBRARIES(rnn2d_torch rnn2d_gpu THC)
     SET(REQUIRE_CUNN "require 'cunn'")
   ENDIF()
 
