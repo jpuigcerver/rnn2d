@@ -101,7 +101,7 @@ static void DeallocateData() {
     state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
   }                                                                     \
   BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference)           \
-  ->Unit(benchmark::kMillisecond)                                       \
+  ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _fw_training(          \
@@ -125,7 +125,7 @@ static void DeallocateData() {
     state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
   }                                                                     \
   BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _fw_training)            \
-  ->Unit(benchmark::kMillisecond)                                       \
+  ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_workspace(         \
@@ -154,7 +154,7 @@ static void DeallocateData() {
     state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
   }                                                                     \
   BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_workspace)           \
-  ->Unit(benchmark::kMillisecond)                                       \
+  ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param(             \
@@ -179,7 +179,7 @@ static void DeallocateData() {
     state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
   }                                                                     \
   BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param)               \
-  ->Unit(benchmark::kMillisecond)                                       \
+  ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_input(             \
@@ -201,7 +201,7 @@ static void DeallocateData() {
     state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
   }                                                                     \
   BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_input)               \
-  ->Unit(benchmark::kMillisecond)                                       \
+  ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   static void BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_ALL(               \
@@ -239,7 +239,7 @@ static void DeallocateData() {
     state.SetItemsProcessed(state.iterations() * H * W * N * K * D);    \
   }                                                                     \
   BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_ALL)                 \
-  ->Unit(benchmark::kMillisecond)                                       \
+  ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime()
 
 
