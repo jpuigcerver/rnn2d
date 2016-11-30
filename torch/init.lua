@@ -1,6 +1,7 @@
 require 'librnn2d_torch'
+require 'torch'
+@REQUIRE_CUTORCH@
 require 'nn'
-@REQUIRE_CUNN@
 
 rnn2d = {}
 

@@ -167,14 +167,14 @@ endmacro()
 if( NOT BLAS_VENDORS )
   # If not specified, we will search through the list of known suppliers
   set( BLAS_VENDORS
+    ATLAS
     ACCELERATE
     ACML
-    ATLAS
     ESSL
     GOTO
-    MKL
     OPEN
     SCSL
+    MKL
     SUNPERF
     VECLIB
     GENERIC)
@@ -450,5 +450,6 @@ set( BLAS_FLAGS ${BLAS_${BLAS_VENDOR_FOUND}_FLAGS} CACHE STRING "")
 set( BLAS_FOUND TRUE )
 set( BLAS_VENDOR ${BLAS_VENDOR_FOUND} CACHE STRING "")
 mark_as_advanced(BLAS_VENDOR)
+mark_as_advanced(BLAS_FLAGS)
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${__CMAKE_FIND_LIBRARY_SUFFIXES})

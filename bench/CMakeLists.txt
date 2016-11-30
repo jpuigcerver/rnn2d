@@ -6,7 +6,7 @@ IF(GBENCH_FOUND)
     rnn2d_cpu pthread benchmark ${COMMON_LIBRARIES})
 
   # GPU BENCHMARKS
-  IF (CUDA_FOUND AND USE_CUDA)
+  IF (CUDA_FOUND AND WITH_CUDA)
     CUDA_ADD_EXECUTABLE(lstm_gpu_benchmark lstm_gpu_benchmark.cu)
     TARGET_LINK_LIBRARIES(lstm_gpu_benchmark
       rnn2d_gpu pthread benchmark ${COMMON_LIBRARIES})

@@ -2,9 +2,9 @@
 #include <luaT.h>
 #include <TH.h>
 
-#ifdef USE_CUDA
+#ifdef WITH_CUDA
 #include <THC.h>
-#endif  // USE_CUDA
+#endif  // WITH_CUDA
 
 #include "utils.h"
 
@@ -146,25 +146,25 @@ inline TensorType getTensorType(lua_State* L, int ud) {
 
 DECLARE_TYPE_FUNCTIONS(THFloatTensor);
 DECLARE_TYPE_FUNCTIONS(THDoubleTensor);
-#ifdef USE_CUDA
+#ifdef WITH_CUDA
 DECLARE_TYPE_FUNCTIONS(THCudaTensor);
 DECLARE_TYPE_FUNCTIONS(THCudaDoubleTensor);
-#endif
+#endif  // WITH_CUDA
 
 TORCH_API int luaopen_librnn2d_torch(lua_State* L) {
   REGISTER_TYPE_FUNCTIONS(THFloatTensor);
   REGISTER_TYPE_FUNCTIONS(THDoubleTensor);
-#ifdef USE_CUDA
+#ifdef WITH_CUDA
   REGISTER_TYPE_FUNCTIONS(THCudaTensor);
   REGISTER_TYPE_FUNCTIONS(THCudaDoubleTensor);
-#endif  //USE_CUDA
+#endif  // WITH_CUDA
   return 0;
 }
 
 #include "generic/cpu.cc"
 #include "THGenerateFloatTypes.h"
 
-#ifdef USE_CUDA
+#ifdef WITH_CUDA
 #include "generic/gpu.cc"
 #include "THCGenerateFloatTypes.h"
-#endif
+#endif  // WITH_CUDA
