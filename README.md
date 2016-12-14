@@ -1,6 +1,6 @@
 # rnn2d
 
-The purpose of this library is to have a open source implementation of the 
+The purpose of this library is to have a open source implementation of the
 most common 2D Recurrent Neural Network (RNN) layers, for both CPUs and GPUs.
 
 2D RNNs are widely used in many applications manipulating 2D objects, like
@@ -22,6 +22,7 @@ that I am currently using.
 
 ## Available layers
 - [LSTM 2D](https://github.com/jpuigcerver/rnn2d/wiki/LSTM-2D)
+- [Tile 2D](https://github.com/jpuigcerver/rnn2d/wiki/Tile-2D)
 
 ## Requirements
 
@@ -59,7 +60,7 @@ $ make -j8
 $ make install
 ```
 
-`BLAS_VENDORS` is a semicolon-separated list containing different BLAS implementations to search 
+`BLAS_VENDORS` is a semicolon-separated list containing different BLAS implementations to search
 for. In this example, it will first try to use the ATLAS implementation (recommended) if available
 and, otherwise, it will use the generic BLAS implementation.
 
