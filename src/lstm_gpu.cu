@@ -1,4 +1,4 @@
-#include "lstm_gpu.h"
+#include <rnn2d/lstm_gpu.h>
 
 #include <algorithm>
 #include <cmath>
@@ -8,10 +8,10 @@
 #include <glog/logging.h>
 #include <thrust/device_vector.h>
 
-#include "activation.h"
-#include "cuda_utils.h"
-#include "lstm_common.h"
-#include "math_gpu.h"
+#include <rnn2d/activation.h>
+#include <rnn2d/cuda_utils.h>
+#include <rnn2d/lstm_impl.h>
+#include <rnn2d/math_gpu.h>
 
 #define BLOCK_SIZE1D 1024
 #define BLOCK_SIZE2D 32
@@ -54,7 +54,7 @@ __global__
 void kernel_init_Q_with_bias(
     const int H, const int W, const int N, const int K, const int D,
     const T* P, T* Q) {
-  for (int ii = thGx; ii < 4 * H * W * N * 5 * D; ii += NTGx) {
+  for (int ii = thGi; ii < 4 * H * W * N * 5 * D; ii += NTG) {
     const int d = ii % D;                      // d \in [0 ... D-1]
     const int g = (ii / D) % 5;                // g \in [0 ... 5]
     const int n = (ii / (5 * D)) % N;          // n \in [0 ... N-1]
@@ -70,7 +70,7 @@ __global__
 void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
                             const int t, const int Tn, const int Tmin,
                             const int* S, T* Q, T* O) {
-  for (int ii = thGx; ii < 4 * Tn * N * D; ii += NTGx) {
+  for (int ii = thGi; ii < 4 * Tn * N * D; ii += NTG) {
     const int d = ii % D;
     const int n = (ii / D) % N;
     const int e = (ii / (N * D)) % Tn;
@@ -103,7 +103,7 @@ __global__
 void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
                             const int t, const int Tn, const int Tmin,
                             const int* S, T* Q) {
-  for (int ii = thGi; ii < 4 * Tn * N * D; ii += NTGx) {
+  for (int ii = thGi; ii < 4 * Tn * N * D; ii += NTG) {
     const int d = ii % D;
     const int n = (ii / D) % N;
     const int e = (ii / (N * D)) % Tn;
@@ -160,7 +160,7 @@ __global__
 void kernel_copy_dO_to_dC(const int H, const int W, const int N, const int D,
                           const int t, const int Tn, const int Tmin,
                           const T* dO, T* Q) {
-  for (int ii = thGi; ii < 4 * Tn * N * D; ii += NTGx) {
+  for (int ii = thGi; ii < 4 * Tn * N * D; ii += NTG) {
     const int d = ii % D;
     const int n = (ii / D) % N;
     const int e = (ii / (N * D)) % Tn;
@@ -177,7 +177,7 @@ template <typename T>
 __global__
 void kernel_copy_Oxp_to_Q(const int H, const int W, const int N, const int D,
                           const T* O, T* Q) {
-  for (int ii = thGi; ii < 4 * H * W * N * D; ii += NTGx) {
+  for (int ii = thGi; ii < 4 * H * W * N * D; ii += NTG) {
     const int d = ii % D;
     const int n = (ii / D) % N;
     const int x = (ii / (N * D)) % W;
@@ -195,7 +195,7 @@ template <typename T>
 __global__
 void kernel_copy_Oyp_to_Q(const int H, const int W, const int N, const int D,
                           const T* O, T* Q) {
-  for (int ii = thGi; ii < 4 * H * W * N * D; ii += NTGx) {
+  for (int ii = thGi; ii < 4 * H * W * N * D; ii += NTG) {
     const int d = ii % D;
     const int n = (ii / D) % N;
     const int x = (ii / (N * D)) % W;

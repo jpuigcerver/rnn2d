@@ -13,7 +13,7 @@
 template <typename T>
 inline void copy_dO_to_dC(
     const int H, const int W, const int N, const int D,
-    const int t, const int Tn, const int Tmin, const T* dO, T* Q) {
+    const int t, const int Tn, const int Tmin, const T* dO, T* dQ) {
   #pragma omp parallel for collapse(4)
   for (int z = 0; z < 4; ++z) {
     for (int e = 0; e < Tn; ++e) {
@@ -50,14 +50,14 @@ inline void fw_elemwise_ops(
           T* C_00 = Q_ptr(z, y, x, n, 5, d);
           T* O_00 = O_ptr(y, x, n, z, d);
           if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
-            const T f_a   = FI::f(*Q_ptr(z, y, x, n, 0, d));  // f(input)
-            const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 1, d));  // input gate
-            const T f_go  = FG::f(*Q_ptr(z, y, x, n, 2, d));  // output gate
-            const T f_gfy = FG::f(*Q_ptr(z, y, x, n, 3, d));  // forget_y gate
-            const T f_gfx = FG::f(*Q_ptr(z, y, x, n, 4, d));  // forget_x gate
+            const T f_a  = FI::f(*Q_ptr(z, y, x, n, 0, d));  // f(input)
+            const T f_gi = FG::f(*Q_ptr(z, y, x, n, 1, d));  // input gate
+            const T f_go = FG::f(*Q_ptr(z, y, x, n, 2, d));  // output gate
+            const T f_gf = FG::f(*Q_ptr(z, y, x, n, 3, d));  // forget gate
+            const T f_gl = FG::f(*Q_ptr(z, y, x, n, 4, d));  // lambda gate
             const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
             const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
-            *C_00 = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;
+            *C_00 = f_gi * f_a + f_gf * f_gl * C_10 + f_gf * (1 - f_gl) * C_01;
             *O_00 = f_go * FO::f(*C_00);
           } else {
             *C_00 = 0;
@@ -72,7 +72,7 @@ inline void fw_elemwise_ops(
 template <typename T, typename FG, typename FI, typename FO>
 inline void bw_elemwise_ops(
     const int H, const int W, const int N, const int D, const int t,
-    const int Tn, const int Tmin, const int* S, T* Q) {
+    const int Tn, const int Tmin, const int* S, const T* Q, T* dQ) {
   #pragma omp parallel for collapse(4)
   for (int z = 0; z < 4; ++z) {
     for (int e = 0; e < Tn; ++e) {
@@ -239,12 +239,14 @@ inline void fw_training(
 template <typename T, typename FG, typename FI, typename FO>
 inline void bw_workspace(
     const int H, const int W, const int N, const int K, const int D,
-    const T* I, const int* S, const T* P, const T* O, const T* dO, T* Q) {
+    const T* I, const int* S, const T* P, const T* O, const T* Q, const T* dO,
+    T* dQ) {
   CHECK_NOTNULL(I);
   CHECK_NOTNULL(P);
   CHECK_NOTNULL(O);
-  CHECK_NOTNULL(dO);
   CHECK_NOTNULL(Q);
+  CHECK_NOTNULL(dO);
+  CHECK_NOTNULL(dQ);
   // Process the image diagonal-wise, in backwards order
   // (there are H + W - 1 diagonals to process)
   for (int t = H + W - 2; t >= 0; --t) {
@@ -253,7 +255,7 @@ inline void bw_workspace(
     const int Tmax = std::min(t, H - 1);
     const int Tn   = (Tmax - Tmin) + 1;
 
-    copy_dO_to_dC<T>(H, W, N, D, t, Tn, Tmin, dO, Q);
+    copy_dO_to_dC<T>(H, W, N, D, t, Tn, Tmin, dO, dQ);
 
     // Note: All elements in the diagonal could be processed in parallel.
     // However, a OpenMP parallel for was not used here because the internal
@@ -289,7 +291,7 @@ inline void bw_workspace(
                     1.0, dQ_ptr(z, y, x, 0, 5, 0), 6 * D);
       }
     }
-    bw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q);
+    bw_elemwise_ops<T, FG, FI, FO>(H, W, N, D, t, Tn, Tmin, S, Q, dQ);
   }
 }
 
@@ -297,10 +299,10 @@ inline void bw_workspace(
 template <typename T>
 inline void bw_input(
     const int H, const int W, const int N, const int K, const int D,
-    const T* P, const T scale, T* dI, T* Q) {
+    const T* P, const T* dQ, const T scale, T* dI) {
   CHECK_NOTNULL(P);
+  CHECK_NOTNULL(dQ);
   CHECK_NOTNULL(dI);
-  CHECK_NOTNULL(Q);
   // dJ/dI(y,x)
   for (int z = 0; z < 4; ++z) {
     /* dQ reshaped as (H * W * N) x (6 * D), but only the first 5 * D columns
@@ -317,19 +319,18 @@ inline void bw_input(
 template <typename T>
 inline void bw_param(
     const int H, const int W, const int N, const int K, const int D,
-    const T* I, const T* O, const T scale, T* dP, T* Q) {
+    const T* I, const T* O, const T* dQ, const T scale, T* dP) {
   CHECK_NOTNULL(I);
   CHECK_NOTNULL(O);
+  CHECK_NOTNULL(dQ);
   CHECK_NOTNULL(dP);
-  CHECK_NOTNULL(Q);
   // dJ/db
-  T* vOnes = Q;
-  std::fill(vOnes, vOnes + H * W * N, static_cast<T>(1));
+  const std::vector<T> vOnes(H * W * N, 1);
   #pragma omp parallel for
   for (int z = 0; z < 4; ++z) {
     gemv_cpu<T>('T', H * W * N, 5 * D,
                 scale, dQ_ptr(z, 0, 0, 0, 0, 0), 6 * D,
-                vOnes, 1,
+                vOnes.data(), 1,
                 1.0, dB_ptr(z, 0, 0), 1);
   }
 

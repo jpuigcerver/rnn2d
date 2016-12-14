@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
-#include "lstm_cpu.h"
+#include <rnn2d/lstm_cpu.h>
 #include "lstm_common_test.h"
 
 #define DEFINE_CPU_TESTS(TYPE)                                          \

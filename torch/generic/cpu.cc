@@ -2,7 +2,7 @@
 #define TH_GENERIC_FILE "generic/cpu.cc"
 #else
 
-#include "../../lstm_cpu.h"
+#include <rnn2d/lstm_cpu.h>
 
 #define torch_Tensor TH_CONCAT_STRING_3(torch.,Real,Tensor)
 

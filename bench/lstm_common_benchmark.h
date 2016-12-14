@@ -18,7 +18,7 @@ static std::default_random_engine RNG;
 #ifdef __CUDACC__
 #include <thrust/device_vector.h>
 #include <thrust/system/cuda/experimental/pinned_allocator.h>
-#include "../lstm_gpu.h"
+#include <rnn2d/lstm_gpu.h>
 using thrust::system::cuda::experimental::pinned_allocator;
 static thrust::device_vector<float> DATA_gpu_float;
 static thrust::device_vector<double> DATA_gpu_double;
@@ -26,7 +26,7 @@ static thrust::host_vector<float, pinned_allocator<float> > DATA_cpu_float;
 static thrust::host_vector<double, pinned_allocator<double> > DATA_cpu_double;
 #define VECTOR_DATA(v) (v).data().get()
 #else
-#include "../lstm_cpu.h"
+#include <rnn2d/lstm_cpu.h>
 static std::vector<float> DATA_cpu_float;
 static std::vector<double> DATA_cpu_double;
 #define VECTOR_DATA(v) (v).data()
@@ -241,7 +241,5 @@ static void DeallocateData() {
   BENCHMARK(BM_lstm_ ## DEVICE ## _ ## TYPE ## _bw_ALL)                 \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime()
-
-
 
 #endif  // BENCH_LSTM_COMMON_BENCHMARK_H_
