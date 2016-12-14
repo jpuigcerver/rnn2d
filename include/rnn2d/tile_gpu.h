@@ -1,7 +1,7 @@
 #ifndef RNN2D_TILE_GPU_H_
 #define RNN2D_TILE_GPU_H_
 
-#include "tile.inc.h"
+#include <rnn2d/common.h>
 
 #ifdef __cplusplus
 extern "C" {

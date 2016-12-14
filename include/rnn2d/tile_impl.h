@@ -1,5 +1,5 @@
-#ifndef RNN2D_TILE_COMMON_H_
-#define RNN2D_TILE_COMMON_H_
+#ifndef RNN2D_TILE_IMPL_H_
+#define RNN2D_TILE_IMPL_H_
 
 #define I_ptr(I, y, x, n, d)                            \
   ((I) + ((((y) * W + (x)) * N) + (n)) * D + (d))
@@ -22,4 +22,4 @@
     bw< TYPE >(H, W, N, D, Kh, Kw, shape, dOutput, dInput);             \
   }
 
-#endif  // RNN2D_TILE_COMMON_H_
+#endif  // RNN2D_TILE_IMPL_H_

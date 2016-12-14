@@ -1,8 +1,8 @@
-#include "tile_cpu.h"
+#include <rnn2d/tile_cpu.h>
 
 #include <glog/logging.h>
 
-#include "tile_xxx.h"
+#include <rnn2d/tile_impl.h>
 
 template <typename T>
 inline void fw(const int H, const int W, const int N, const int D,

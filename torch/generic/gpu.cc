@@ -3,7 +3,7 @@
 #else
 
 #include "THC/THCTensor.h"
-#include "../../lstm_gpu.h"
+#include <rnn2d/lstm_gpu.h>
 
 #define torch_Tensor TH_CONCAT_STRING_3(torch.,CReal,Tensor)
 

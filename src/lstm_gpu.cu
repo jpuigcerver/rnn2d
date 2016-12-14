@@ -1,4 +1,4 @@
-#include "lstm_gpu.h"
+#include <rnn2d/lstm_gpu.h>
 
 #include <algorithm>
 #include <cmath>
@@ -8,10 +8,10 @@
 #include <glog/logging.h>
 #include <thrust/device_vector.h>
 
-#include "activation.h"
-#include "cuda_utils.h"
-#include "lstm_common.h"
-#include "math_gpu.h"
+#include <rnn2d/activation.h>
+#include <rnn2d/cuda_utils.h>
+#include <rnn2d/lstm_impl.h>
+#include <rnn2d/math_gpu.h>
 
 #define BLOCK_SIZE1D 1024
 #define BLOCK_SIZE2D 32

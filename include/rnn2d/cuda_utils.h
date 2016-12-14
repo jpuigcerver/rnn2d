@@ -7,7 +7,6 @@
 #include <cublas_v2.h>
 #include <glog/logging.h>
 
-#define DIV_UP(x, y) (x == 0 ? 0 : 1 + ((x) - 1) / (y))
 #define NUM_BLOCKS(n, s) std::min<int>(DIV_UP(n, s), 65535)
 
 #define CHECK_CUDA_CALL(status)                                          \

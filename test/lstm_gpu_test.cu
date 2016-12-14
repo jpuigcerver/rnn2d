@@ -2,7 +2,7 @@
 #include <gmock/gmock.h>
 #include <thrust/device_vector.h>
 
-#include "lstm_gpu.h"
+#include <rnn2d/lstm_gpu.h>
 #include "lstm_common_test.h"
 
 #define DEFINE_GPU_TESTS(TYPE)                                          \
