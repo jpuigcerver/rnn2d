@@ -16,6 +16,7 @@ description = {
 
 dependencies = {
   "torch >= 7.0",
+  "luaffi",
   "nn"
 }
 
@@ -23,8 +24,8 @@ build = {
   type = "cmake",
   variables = {
     TORCH_ROOT = "$(LUA_BINDIR)/..",
-    WITH_TORCH = "ON",
     CMAKE_BUILD_TYPE = "RELEASE",
-    CMAKE_INSTALL_PREFIX = "$(LUA_BINDIR)/.."
+    CMAKE_INSTALL_PREFIX = "$(PREFIX)",
+    INST_LUADIR = "$(LUADIR)",
   }
 }

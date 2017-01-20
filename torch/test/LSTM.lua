@@ -94,20 +94,24 @@ function generic_test(t)
 			'checksum for lstm2d gradInput failed')
 end
 
-function lstm2dtest.testFloat()
-  generic_test('torch.FloatTensor')
+if rnn2d.cpu then
+  function lstm2dtest.testFloat()
+    generic_test('torch.FloatTensor')
+  end
+
+  function lstm2dtest.testDouble()
+    generic_test('torch.DoubleTensor')
+  end
 end
 
-function lstm2dtest.testDouble()
-  generic_test('torch.DoubleTensor')
-end
+if rnn2d.gpu then
+  function lstm2dtest.testCudaFloat()
+    generic_test('torch.CudaTensor')
+  end
 
-function lstm2dtest.testCudaFloat()
-  generic_test('torch.CudaTensor')
-end
-
-function lstm2dtest.testCudaDouble()
-  generic_test('torch.CudaDoubleTensor')
+  function lstm2dtest.testCudaDouble()
+    generic_test('torch.CudaDoubleTensor')
+  end
 end
 
 tester:add(lstm2dtest)
