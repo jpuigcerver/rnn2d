@@ -14,8 +14,10 @@ Tile.bw = {
   ['torch.CudaDoubleTensor'] = rnn2d.gpu.rnn2d_tile_gpu_double_bw
 }
 
-function Tile:__init(kH, kW)
+function Tile:__init(inputSize, kH, kW)
   parent.__init(self)
+  assert(inputSize ~= nil)
+  self.inputSize = inputSize
   self.kH = kH or 1
   self.kW = kW or 1
   self.output = torch.Tensor()
@@ -41,6 +43,7 @@ end
 function Tile:updateOutput(input)
   assert(input:dim() == 4, 'Input must have 4 dimensions: H x W x N x D')
   local H, W, N, D = input:size(1), input:size(2), input:size(3), input:size(4)
+  assert(D == self.inputSize)
   local fw = Tile.fw[self:type()]
   assert(fw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
   -- Resize output tensor to the appropiate size
@@ -55,9 +58,9 @@ end
 
 function Tile:updateGradInput(input, gradOutput)
   assert(input:dim() == 4, 'Input must have 4 dimensions: H x W x N x D')
-  assert(gradOutput:dim() == 4,
-	 'gradOutput must have 4 dimensions: H x W x N x D')
   local H, W, N, D = input:size(1), input:size(2), input:size(3), input:size(4)
+  assert(D == self.inputSize)
+  assert(gradOutput:dim() == 4)
   local bw = Tile.bw[input:type()]
   assert(bw ~= nil)
   local x, dy = self:makeContiguous(input, gradOutput)

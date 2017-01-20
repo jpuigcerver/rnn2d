@@ -59,6 +59,6 @@ the required dynamic libraries.
 require 'rnn2d'
 
 local m = nn.Sequential()
-m:add(rnn2d.Tile(2, 2))
-m:add(rnn2d.LSTM(3, 10))
+m:add(rnn2d.Tile(1, 2, 2))  -- Output dimension is: 1 x 2 x 2 = 4
+m:add(rnn2d.LSTM(4, 10))
 ```
