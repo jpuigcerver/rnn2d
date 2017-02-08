@@ -13,8 +13,8 @@
 #include <rnn2d/lstm_impl.h>
 #include <rnn2d/math_gpu.h>
 
-#define BLOCK_SIZE1D 1024
-#define BLOCK_SIZE2D 32
+#define BLOCK_SIZE 256
+#define GRID_SIZE 128
 
 #define STREAMS_CREATE(N)                               \
   for (int i = 0; i < (N); ++i) {                       \
@@ -233,9 +233,7 @@ inline void fw_training(
   CHECK_CUBLAS_CALL(cublasCreate(&handle));
 
   // Initialize gates with bias
-  kernel_init_Q_with_bias<T>
-      <<<NUM_BLOCKS(4 * H * W * N * 5 * D, BLOCK_SIZE1D), BLOCK_SIZE1D>>>(
-          H, W, N, K, D, P, Q);
+  kernel_init_Q_with_bias<T><<<GRID_SIZE, BLOCK_SIZE>>>(H, W, N, K, D, P, Q);
   CHECK_LAST_CUDA_CALL();
 
   // Multiply inputs by weights.
@@ -318,8 +316,7 @@ inline void fw_training(
                               1.0, Qx_batched_gpu.data().get(), 6 * D,
                               Qx_batched_gpu.size()));
       kernel_fw_elemwise_ops<T, FG, FI, FO>
-          <<<NUM_BLOCKS(4 * Tn * N * D, BLOCK_SIZE1D), BLOCK_SIZE1D>>>(
-              H, W, N, D, t, Tn, Tmin, S, Q, O);
+          <<<GRID_SIZE, BLOCK_SIZE>>>(H, W, N, D, t, Tn, Tmin, S, Q, O);
       CHECK_LAST_CUDA_CALL();
     }
   }
@@ -375,8 +372,7 @@ inline void bw_workspace(
       const int Tmax = std::min(t, H - 1);
       const int Tn   = (Tmax - Tmin) + 1;
       kernel_copy_dO_to_dC<T>
-          <<<NUM_BLOCKS(4 * Tn * N * D, BLOCK_SIZE1D), BLOCK_SIZE1D>>>(
-              H, W, N, D, t, Tn, Tmin, dO, Q);
+          <<<GRID_SIZE, BLOCK_SIZE>>>(H, W, N, D, t, Tn, Tmin, dO, Q);
       CHECK_LAST_CUDA_CALL();
 
       for (int z = 0; z < 4; ++z) {
@@ -416,9 +412,8 @@ inline void bw_workspace(
           1.0, dQy_batched_gpu.data().get(), 6 * D,
           Ry_batched_gpu.data().get(), 5 * D,
           1.0, dQy2_batched_gpu.data().get(), 6 * D, dQy2_batched_gpu.size()));
-      kernel_bw_elemwise_ops< T, FG, FI, FO >
-          <<<NUM_BLOCKS(4 * Tn * N * D, BLOCK_SIZE1D), BLOCK_SIZE1D>>>(
-              H, W, N, D, t, Tn, Tmin, S, Q);
+      kernel_bw_elemwise_ops<T, FG, FI, FO>
+          <<<GRID_SIZE, BLOCK_SIZE>>>(H, W, N, D, t, Tn, Tmin, S, Q);
       CHECK_LAST_CUDA_CALL();
     }
   }
@@ -463,7 +458,7 @@ inline void bw_param(
   // dJ/db
   T* vOnes = Q;
   kernel_fill1D<T>
-      <<<DIV_UP(H * W * N, BLOCK_SIZE1D), BLOCK_SIZE1D>>>(H * W * N, vOnes, 1);
+      <<<GRID_SIZE, BLOCK_SIZE>>>(H * W * N, vOnes, 1);
   CHECK_LAST_CUDA_CALL();
   for (int z = 0; z < 4; ++z) {
     CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z]));
@@ -487,13 +482,11 @@ inline void bw_param(
   // translate the output tensor in the x-dimension
   T* Oxp = Q + H * W * N;
   kernel_copy_Oxp_to_Q
-      <<<DIV_UP(4 * H * W * N * D, BLOCK_SIZE1D), BLOCK_SIZE1D, 0, stream[8]>>>
-      (H, W, N, D, O, Oxp);
+      <<<GRID_SIZE, BLOCK_SIZE, 0, stream[8]>>>(H, W, N, D, O, Oxp);
   // translate the output tensor in the y-dimension
   T* Oyp = Q + H * W * N + 4 * H * W * N * D;
   kernel_copy_Oyp_to_Q
-      <<<DIV_UP(4 * H * W * N * D, BLOCK_SIZE1D), BLOCK_SIZE1D, 0, stream[9]>>>
-      (H, W, N, D, O, Oyp);
+      <<<GRID_SIZE, BLOCK_SIZE, 0, stream[9]>>>(H, W, N, D, O, Oyp);
   // wait for data copies
   CHECK_CUDA_CALL(cudaStreamSynchronize(stream[8]));
   CHECK_CUDA_CALL(cudaStreamSynchronize(stream[9]));
