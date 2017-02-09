@@ -117,7 +117,7 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
     const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
     const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
     const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
-    T* dC_00   = dQ_ptr(z, y, x, n, 0, d);
+    T* dA_00   = dQ_ptr(z, y, x, n, 0, d);
     T* dGi_00  = dQ_ptr(z, y, x, n, 1, d);
     T* dGo_00  = dQ_ptr(z, y, x, n, 2, d);
     T* dGfy_00 = dQ_ptr(z, y, x, n, 3, d);
@@ -126,15 +126,19 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
     if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
       const T dC_10 = (yn >= 0 && yn < H) ? *dQ_ptr(z, yn, x, n, 5, d) : 0;
       const T dC_01 = (xn >= 0 && xn < W) ? *dQ_ptr(z, y, xn, n, 5, d) : 0;
+
       const T Gfx_01 = (xn >= 0 && xn < W) ? *Q_ptr(z, y, xn, n, 4, d) : 0;
       const T Gfy_10 = (yn >= 0 && yn < H) ? *Q_ptr(z, yn, x, n, 3, d) : 0;
-      const T C_10   = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
-      const T C_01   = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
-      const T C_00   = *Q_ptr(z, y, x, n, 5, d);
-      const T Gfx_00 = *Q_ptr(z, y, x, n, 4, d);
-      const T Gfy_00 = *Q_ptr(z, y, x, n, 3, d);
-      const T Go_00  = *Q_ptr(z, y, x, n, 2, d);
+      const T C_10   = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 0, d) : 0;
+      const T C_01   = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 0, d) : 0;
+      const T C_00   = *Q_ptr(z, y, x, n, 0, d);
       const T Gi_00  = *Q_ptr(z, y, x, n, 1, d);
+      const T Go_00  = *Q_ptr(z, y, x, n, 2, d);
+      const T Gfy_00 = *Q_ptr(z, y, x, n, 3, d);
+      const T Gfx_00 = *Q_ptr(z, y, x, n, 4, d);
+
+
+
       const T A_00   = *Q_ptr(z, y, x, n, 0, d);
       *dGo_00 = (*dC_00) * FO::f(C_00) * FG::df(Go_00);
       *dC_00  = (*dC_00) * FO::df(C_00) * FG::f(Go_00) +
@@ -376,6 +380,9 @@ inline void bw_workspace(
           <<<GRID_SIZE, BLOCK_SIZE>>>(H, W, N, D, t, Tn, Tmin, dO, Q);
       CHECK_LAST_CUDA_CALL();
 
+      // the matrix multiplications are to compute dJ/dO(x,y).
+      // Notice that the loss function is not only affected by the output
+      // at time (x,y) but also at times (x+1,y) and (x,y+1)!
       for (int z = 0; z < 4; ++z) {
         for (int e = 0; e < Tn; ++e) {
           const int i = e + Tmin;
