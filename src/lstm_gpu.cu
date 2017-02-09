@@ -87,12 +87,13 @@ void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
       const T f_go  = FG::f(*Q_ptr(z, y, x, n, 2, d));  // f_g(output gate)
       const T f_gfy = FG::f(*Q_ptr(z, y, x, n, 3, d));  // f_g(forget_y gate)
       const T f_gfx = FG::f(*Q_ptr(z, y, x, n, 4, d));  // f_g(forget_x gate)
-      const T C_10  = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 5, d) : 0;
-      const T C_01  = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 5, d) : 0;
-      *Q_ptr(z, y, x, n, 5, d) = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;
-      *O_ptr(y, x, n, z, d) = f_go * FO::f(*Q_ptr(z, y, x, n, 5, d));
+      const T C_10  = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 0, d) : 0;
+      const T C_01  = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 0, d) : 0;
+      const T C_00  = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;
+      *Q_ptr(z, y, x, n, 0, d) = C_00;                  // state (re-use mem)
+      *O_ptr(y, x, n, z, d) = f_go * FO::f(C_00);       // output
     } else {
-      *Q_ptr(z, y, x, n, 5, d) = 0;
+      *Q_ptr(z, y, x, n, 0, d) = 0;
       *O_ptr(y, x, n, z, d) = 0;
     }
   }
@@ -116,7 +117,7 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
     const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
     const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
     const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
-    T* dA_00   = dQ_ptr(z, y, x, n, 0, d);
+    T* dC_00   = dQ_ptr(z, y, x, n, 0, d);
     T* dGi_00  = dQ_ptr(z, y, x, n, 1, d);
     T* dGo_00  = dQ_ptr(z, y, x, n, 2, d);
     T* dGfy_00 = dQ_ptr(z, y, x, n, 3, d);
@@ -457,8 +458,7 @@ inline void bw_param(
 
   // dJ/db
   T* vOnes = Q;
-  kernel_fill1D<T>
-      <<<GRID_SIZE, BLOCK_SIZE>>>(H * W * N, vOnes, 1);
+  kernel_fill1D<T><<<GRID_SIZE, BLOCK_SIZE>>>(H * W * N, vOnes, 1);
   CHECK_LAST_CUDA_CALL();
   for (int z = 0; z < 4; ++z) {
     CHECK_CUBLAS_CALL(cublasSetStream(handle, stream[z]));
@@ -519,4 +519,6 @@ inline void bw_param(
 extern "C" {
   DEFINE_WRAPPERS(gpu, float)
   DEFINE_WRAPPERS(gpu, double)
+
+
 }  // extern "C"

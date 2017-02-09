@@ -33,6 +33,12 @@ void rnn2d_lstm_gpu_float_bw_param(
     const float* input, const float* output, const float scale,
     float* dParam, float* workspace);
 
+size_t rnn2d_lstm_gpu_float_inference_workspace_size(
+    const int H, const int W, const int N, const int K);
+
+size_t rnn2d_lstm_gpu_float_training_workspace_size(
+    const int H, const int W, const int N, const int K);
+
 // double
 
 void rnn2d_lstm_gpu_double_fw_inference(
@@ -58,6 +64,12 @@ void rnn2d_lstm_gpu_double_bw_param(
     const int H, const int W, const int N, const int K, const int D,
     const double* input, const double* output, const double scale,
     double* dParam, double* workspace);
+
+size_t rnn2d_lstm_gpu_double_inference_workspace_size(
+    const int H, const int W, const int N, const int K);
+
+size_t rnn2d_lstm_gpu_double_training_workspace_size(
+    const int H, const int W, const int N, const int K);
 
 #ifdef __cplusplus
 }  // extern "C"
