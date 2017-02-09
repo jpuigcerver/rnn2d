@@ -94,6 +94,10 @@ static void DeallocateData() {
         2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
         2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
         2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
+    /* Warm-up: Some models report slow running times on the first */   \
+    /* call to a cuda function. */                                      \
+    rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference(                \
+        H, W, N, K, D, input, nullptr, param, output, workspace);       \
     while (state.KeepRunning()) {                                       \
       rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference(              \
           H, W, N, K, D, input, nullptr, param, output, workspace);     \
@@ -118,6 +122,10 @@ static void DeallocateData() {
         2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
         2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
         2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
+    /* Warm-up: Some models report slow running times on the first */   \
+    /* call to a cuda function. */                                      \
+    rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_training(                 \
+        H, W, N, K, D, input, nullptr, param, output, workspace);       \
     while (state.KeepRunning()) {                                       \
       rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_training(               \
           H, W, N, K, D, input, nullptr, param, output, workspace);     \
@@ -146,6 +154,11 @@ static void DeallocateData() {
         2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
         2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
         2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
+    /* Warm-up: Some models report slow running times on the first */   \
+    /* call to a cuda function. */                                      \
+    rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_workspace(                 \
+        H, W, N, K, D, input, nullptr, param, output, gOutput,          \
+        workspace);                                                     \
     while (state.KeepRunning()) {                                       \
       rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_workspace(               \
           H, W, N, K, D, input, nullptr, param, output, gOutput,        \
@@ -172,6 +185,10 @@ static void DeallocateData() {
         2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
         2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
         2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
+    /* Warm-up: Some models report slow running times on the first */   \
+    /* call to a cuda function. */                                      \
+    rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_param(                     \
+        H, W, N, K, D, input, output, 1.0, gradParam, workspace);       \
     while (state.KeepRunning()) {                                       \
       rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_param(                   \
       H, W, N, K, D, input, output, 1.0, gradParam, workspace);         \
@@ -194,6 +211,10 @@ static void DeallocateData() {
         2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
         2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
         2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
+    /* Warm-up: Some models report slow running times on the first */   \
+    /* call to a cuda function. */                                      \
+    rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_input(                     \
+        H, W, N, K, D, param, 1.0, gradInput, workspace);               \
     while (state.KeepRunning()) {                                       \
       rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_input(                   \
           H, W, N, K, D, param, 1.0, gradInput, workspace);             \
@@ -227,6 +248,15 @@ static void DeallocateData() {
         2 * RNN2D_LSTM_PARAMETERS_SIZE(K, D) +       /* input offset */ \
         2 * RNN2D_LSTM_INPUT_SIZE(H, W, N, K) +     /* output offset */ \
         2 * RNN2D_LSTM_OUTPUT_SIZE(H, W, N, D);  /* workspace offset */ \
+    /* Warm-up: Some models report slow running times on the first */   \
+    /* call to a cuda function. */                                      \
+    rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_workspace(                 \
+        H, W, N, K, D, input, nullptr, param, output, gOutput,          \
+        workspace);                                                     \
+    rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_param(                     \
+        H, W, N, K, D, input, output, 1.0, gradParam, workspace);       \
+    rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_input(                     \
+        H, W, N, K, D, param, 1.0, gradInput, workspace);               \
     while (state.KeepRunning()) {                                       \
       rnn2d_lstm_## DEVICE ## _ ## TYPE ## _bw_workspace(               \
           H, W, N, K, D, input, nullptr, param, output, gOutput,        \
