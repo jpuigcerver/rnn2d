@@ -13,10 +13,12 @@ IF(GBENCH_FOUND)
   IF (CUDA_FOUND AND WITH_CUDA)
     CUDA_ADD_EXECUTABLE(lstm_gpu_benchmark lstm_gpu_benchmark.cu)
     TARGET_LINK_LIBRARIES(lstm_gpu_benchmark
-      rnn2d_gpu pthread benchmark ${COMMON_LIBRARIES})
+      rnn2d_gpu pthread benchmark ${COMMON_LIBRARIES}
+      ${CUDA_curand_LIBRARY})
 
     CUDA_ADD_EXECUTABLE(tile_gpu_benchmark tile_gpu_benchmark.cu)
     TARGET_LINK_LIBRARIES(tile_gpu_benchmark
       rnn2d_gpu pthread benchmark ${COMMON_LIBRARIES})
+
   ENDIF()
 ENDIF()

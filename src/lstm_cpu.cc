@@ -11,23 +11,15 @@
 #include <rnn2d/math_cpu.h>
 
 template <typename T>
-inline void copy_dO_to_dC(
-    const int H, const int W, const int N, const int D,
-    const int t, const int Tn, const int Tmin, const T* dO, T* Q) {
-  #pragma omp parallel for collapse(4)
-  for (int z = 0; z < 4; ++z) {
-    for (int e = 0; e < Tn; ++e) {
-      for (int n = 0; n < N; ++n) {
-        for (int d = 0; d < D; ++d) {
-          const int i = e + Tmin;
-          const int j = t - i;
-          const int y = (z == 0 || z == 1) ? i : H - i - 1;
-          const int x = (z == 0 || z == 2) ? j : W - j - 1;
-          *dQ_ptr(z, y, x, n, 5, d) = *dO_ptr(y, x, n, z, d);
-        }
-      }
-    }
-  }
+inline void copy_dO_to_dC(const int H, const int W, const int N, const int D,
+                          const T* dO, T* Q) {
+  #pragma omp parallel for collapse(5)
+  for (int z = 0; z < 4; ++z)
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x)
+        for (int n = 0; n < N; ++n)
+          for (int d = 0; d < D; ++d)
+            *dQ_ptr(z, y, x, n, 5, d) = *dO_ptr(y, x, n, z, d);
 }
 
 template <typename T, typename FG, typename FI, typename FO>
@@ -245,6 +237,9 @@ inline void bw_workspace(
   CHECK_NOTNULL(O);
   CHECK_NOTNULL(dO);
   CHECK_NOTNULL(Q);
+
+  copy_dO_to_dC<T>(H, W, N, D, dO, Q);
+
   // Process the image diagonal-wise, in backwards order
   // (there are H + W - 1 diagonals to process)
   for (int t = H + W - 2; t >= 0; --t) {
@@ -252,8 +247,6 @@ inline void bw_workspace(
     const int Tmin = std::max(0, t - W + 1);
     const int Tmax = std::min(t, H - 1);
     const int Tn   = (Tmax - Tmin) + 1;
-
-    copy_dO_to_dC<T>(H, W, N, D, t, Tn, Tmin, dO, Q);
 
     // Note: All elements in the diagonal could be processed in parallel.
     // However, a OpenMP parallel for was not used here because the internal
