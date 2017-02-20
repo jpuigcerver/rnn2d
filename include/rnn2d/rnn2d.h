@@ -5,8 +5,13 @@
 extern "C" {
 #endif
 
+typedef struct CUstream_st *cudaStream_t;
+
 struct rnn2dContext;
-typedef struct rnn2dContext* rnn2dHandle_t;
+typedef struct rnn2dContext *rnn2dHandle_t;
+
+struct rnn2dLstmStruct;
+typedef struct rnn2dLstmStruct *rnn2dLstmDescriptor_t;
 
 typedef enum {
   RNN2D_STATUS_SUCCESS         = 0,
@@ -21,9 +26,6 @@ rnn2dStatus_t rnn2dSetDevice(rnn2dHandle_t handle, int device);
 rnn2dStatus_t rnn2dGetDevice(rnn2dHandle_t handle, int* device);
 rnn2dStatus_t rnn2dSetStream(rnn2dHandle_t handle, cudaStream_t streamId);
 rnn2dStatus_t rnn2dGetStream(rnn2dHandle_t handle, cudaStream_t *streamId);
-
-struct rnn2dLstmStruct;
-typedef struct rnn2dLstmStruct* rnn2dLstmDescriptor_t;
 
 #ifdef __cplusplus
 }
