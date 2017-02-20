@@ -2,6 +2,7 @@
 #define RNN2D_LSTM_GPU_H_
 
 #include <rnn2d/lstm_common.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {

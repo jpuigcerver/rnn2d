@@ -1,5 +1,5 @@
-#ifndef RNN2D_LSTM_COMMON_H_
-#define RNN2D_LSTM_COMMON_H_
+#ifndef RNN2D_LSTM_IMPL_H_
+#define RNN2D_LSTM_IMPL_H_
 
 /* === 2D-LSTM EQUATIONS ===
  * Input: I(y,x) is a N x K matrix
@@ -28,120 +28,103 @@
  *   Bottom-Right origin: y,x-offsets = +1, +1
  */
 
-// Useful defines to access specific addresses in the input, output and
-// internal state tensors.
+// Useful defines to index several arrays:
+// Input array
 #define I_ptr(y, x, n, d)                       \
   (I  + (((y) * W + (x)) * N + (n)) * K + (d))
 #define dI_ptr(y, x, n, d)                      \
   (dI + (((y) * W + (x)) * N + (n)) * K + (d))
+// Output array
 #define O_ptr(y, x, n, z, d)                                    \
   (O  + ((((y) * W + (x)) * N + (n)) * 4 + (z)) * D + (d))
 #define dO_ptr(y, x, n, z, d)                                   \
   (dO + ((((y) * W + (x)) * N + (n)) * 4 + (z)) * D + (d))
-#define Q_ptr(z, y, x, n, g, d)                                 \
-  (Q  + (((((z) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
-#define dQ_ptr(z, y, x, n, g, d)                                \
-  (Q + (4 * H * W * N * 6 * D) + \
-   (((((z) * H + (y)) * W + (x)) * N + (n)) * 6 + (g)) * D + (d))
-
+// Bias array
 #define B_ptr(z, g, d)                                  \
   (P  + (z) * (1 + K + D + D) * 5 * D + (g) * D + (d))
 #define dB_ptr(z, g, d)                                 \
   (dP + (z) * (1 + K + D + D) * 5 * D + (g) * D + (d))
+// Input weights array
 #define W_ptr(z, k, g, d)                                               \
   (P  + ((z) * (1 + K + D + D) + 1 + (k)) * 5 * D + (g) * D + (d))
 #define dW_ptr(z, k, g, d)                                              \
   (dP + ((z) * (1 + K + D + D) + 1 + (k)) * 5 * D + (g) * D + (d))
-#define Ry_ptr(z, d1, g, d2)                                            \
+// Recurrent-y array
+#define U_ptr(z, d1, g, d2)                                             \
   (P  + ((z) * (1 + K + D + D) + 1 + K + (d1)) * 5 * D + (g) * D + (d2))
-#define dRy_ptr(z, d1, g, d2)                                           \
+#define dU_ptr(z, d1, g, d2)                                            \
   (dP + ((z) * (1 + K + D + D) + 1 + K + (d1)) * 5 * D + (g) * D + (d2))
-#define Rx_ptr(z, d1, g, d2)                                            \
+// Recurrent-x array
+#define V_ptr(z, d1, g, d2)                                             \
   (P  + ((z) * (1 + K + D + D) + 1 + K + D + (d1)) * 5 * D + (g) * D + (d2))
-#define dRx_ptr(z, d1, g, d2)                                           \
+#define dV_ptr(z, d1, g, d2)                                            \
   (dP + ((z) * (1 + K + D + D) + 1 + K + D + (d1)) * 5 * D + (g) * D + (d2))
 
-#define print_4D(H, W, N, D, T) {                                       \
-    for (int y = 0; y < (H); ++y) {                                     \
-      for (int x = 0; x < (W); ++x) {                                   \
-        for (int n = 0; n < (N); ++n) {                                 \
-          printf("%s(%d, %d, %d, :) =", #T, y, x, n);                   \
-          for (int d = 0; d < (D); ++d) {                               \
-            printf(" %f", T[y * W * N * D + x * N * D + n * D + d]);    \
-          }                                                             \
-          printf("\n");                                                 \
-        }                                                               \
-        printf("\n");                                                   \
-      }                                                                 \
-      printf("\n");                                                     \
-    }                                                                   \
-  }
-
-#define print_6D(Z, H, W, N, G, D, T) {                                 \
-    for(int z = 0; z < (Z); ++z) {                                      \
-      for (int y = 0; y < (H); ++y) {                                   \
-        for (int x = 0; x < (W); ++x) {                                 \
-          for (int n = 0; n < (N); ++n) {                               \
-            for (int g = 0; g < (G); ++g) {                             \
-              printf("%s(%d, %d, %d, %d, %d, :) =", #T, z, y, x, n, g); \
-              for (int d = 0; d < (D); ++d) {                           \
-                printf(" %f", T[z * (H) * (W) * (N) * (G) * (D) +       \
-                                y * (W) * (N) * (G) * (D) +             \
-                                x * (N) * (G) * (D) +                   \
-                                n * (D) * (G) +                         \
-                                g * (D) + d]);                          \
-              }                                                         \
-              printf("\n");                                             \
-            }                                                           \
-            printf("\n");                                               \
-          }                                                             \
-          printf("\n");                                                 \
-        }                                                               \
-        printf("\n");                                                   \
-      }                                                                 \
-      printf("\n");                                                     \
-    }                                                                   \
-  }
+// Reserve array
+#define Q_ptr(z, y, x, n, g, d)                                         \
+  (Q  + (((((z) * H + (y)) * W + (x)) * N + (n)) * 5 + (g)) * D + (d))
+// Workspace array
+#define Z_ptr(g, z, y, x, n, d)                                         \
+  (Z  + (((((g) * 4 + (z)) * H + (y)) * W + (x)) * N + (n)) * D + (d))
 
 #define DEFINE_WRAPPERS(DEVICE, TYPE)                                   \
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference(             \
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const int* shape, const TYPE* param,           \
-      TYPE* output, TYPE* workspace) {                                  \
+      TYPE* output, void* workspace) {                                  \
     fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(         \
-        H, W, N, K, D, input, shape, param, output, workspace);         \
+        H, W, N, K, D, input, shape, param, output,                     \
+        workspace, nullptr);                                            \
   }                                                                     \
                                                                         \
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_training(              \
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const int* shape, const TYPE* param,           \
-      TYPE* output, TYPE* workspace) {                                  \
+      TYPE* output, void* workspace, void* reserve) {                   \
     fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(         \
-        H, W, N, K, D, input, shape, param, output, workspace);         \
+        H, W, N, K, D, input, shape, param, output,                     \
+        workspace, reserve);                                            \
   }                                                                     \
                                                                         \
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_workspace(             \
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const int* shape, const TYPE* param,           \
-      const TYPE* output, const TYPE* dOutput, TYPE* workspace) {       \
+      const TYPE* output, const TYPE* dOutput,                          \
+      void* workspace, void* reserve) {                                 \
     bw_workspace< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(        \
         H, W, N, K, D, input, shape, param, output, dOutput,            \
-        workspace);                                                     \
+        workspace, reserve);                                            \
   }                                                                     \
                                                                         \
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_input(                 \
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* param, const TYPE scale, TYPE* dInput,                \
-      TYPE* workspace) {                                                \
-    bw_input< TYPE >(H, W, N, K, D, param, scale, dInput, workspace);   \
+      void* workspace, void* reserve) {                                 \
+    bw_input< TYPE >(H, W, N, K, D, param, scale, dInput,               \
+                     workspace, reserve);                               \
   }                                                                     \
                                                                         \
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param(                 \
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const TYPE* output, const TYPE scale,          \
-      TYPE* dParam, TYPE* workspace) {                                  \
+      TYPE* dParam, void* workspace, void* reserve) {                   \
     bw_param< TYPE >(H, W, N, K, D, input, output, scale, dParam,       \
-                     workspace);                                        \
+                     workspace, reserve);                               \
+  }                                                                     \
+                                                                        \
+  size_t rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _inference_workspace_size( \
+      const int H, const int W, const int N, const int D) {             \
+    return get_inference_workspace_size<TYPE>(H, W, N, D);              \
+  }                                                                     \
+                                                                        \
+  size_t rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _training_workspace_size( \
+      const int H, const int W, const int N, const int D) {             \
+    return get_training_workspace_size<TYPE>(H, W, N, D);               \
+  }                                                                     \
+                                                                        \
+  size_t rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _training_reserve_size(  \
+      const int H, const int W, const int N, const int D) {             \
+    return get_training_reserve_size<TYPE>(H, W, N, D);                 \
   }
 
-#endif  // RNN2D_LSTM_COMMON_H_
+#endif  // RNN2D_LSTM_IMPL_H_
