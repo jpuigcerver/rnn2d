@@ -88,7 +88,7 @@ inline size_t get_training_workspace_size(
 template <typename T>
 inline size_t get_training_reserve_size(
     const int H, const int W, const int N, const int D) {
-  return sizeof(T) * 4 * H * W * N * 6 * D;
+  return 4 * H * W * N * 6 * D * sizeof(T);
 }
 
 template <typename T>
@@ -129,9 +129,9 @@ void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
     const int j = t - i;
     const int y  = (z == 0 || z == 1) ? i : H - i - 1;
     const int x  = (z == 0 || z == 2) ? j : W - j - 1;
-    const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
-    const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
     if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
+      const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
+      const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
       const T f_a   = FI::f(*Q_ptr(z, y, x, n, 0, d));  // f_i(input)
       const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 1, d));  // f_g(input gate)
       const T f_go  = FG::f(*Q_ptr(z, y, x, n, 2, d));  // f_g(output gate)
@@ -163,10 +163,6 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
     const int j = t - i;
     const int y = (z == 0 || z == 1) ? i : H - i - 1;
     const int x = (z == 0 || z == 2) ? j : W - j - 1;
-    const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
-    const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
-    const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
-    const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
     T* dA_00   = Q_ptr(z, y, x, n, 0, d);   // currently contains A_00
     T* dGi_00  = Q_ptr(z, y, x, n, 1, d);   // currenlty contains Gi_00
     T* dGo_00  = Q_ptr(z, y, x, n, 2, d);   // currently contains Go_00
@@ -174,6 +170,10 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
     T* dGfx_00 = Q_ptr(z, y, x, n, 4, d);   // currently contains Gfx_00
     T* dC_00   = Q_ptr(z, y, x, n, 5, d);   // currently contains C_00
     if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
+      const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
+      const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
+      const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
+      const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
       const T A_00   = *dA_00;
       const T Gi_00  = *dGi_00;
       const T Go_00  = *dGo_00;
@@ -315,7 +315,10 @@ inline void fw_training(
       const int Tmax = std::min(t, H - 1);
       const int Tn   = (Tmax - Tmin) + 1;
 
-      //
+      // Matrix multiplications to compute the input to the gates from the
+      // recurrent connections.
+      // [A,Gi,Go,Gx,Gy](x,y) += O(x,y-1) * [U_a,U_i,U_o,U_x,U_y]
+      // [A,Gi,Go,Gx,Gy](x,y) += O(x-1,y) * [V_a,V_i,V_o,V_x,V_y]
       int batch_mul_size_x = 0, batch_mul_size_y = 0;
       for (int z = 0; z < 4; ++z) {
         for (int e = 0; e < Tn; ++e) {
@@ -447,7 +450,7 @@ inline void bw_workspace(
       const int Tmax = std::min(t, H - 1);
       const int Tn   = (Tmax - Tmin) + 1;
 
-      // the matrix multiplications are to compute dJ/dO(x,y).
+      // Matrix multiplications to compute dJ/dO(x,y).
       // Notice that the loss function is not only affected by the output
       // at time (x,y) but also at times (x+1,y) and (x,y+1)!
       int batch_mul_size_x = 0, batch_mul_size_y = 0;
@@ -501,7 +504,9 @@ inline void bw_workspace(
           gemm_gpu_batched<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
                               1.0, dQy_ptrs, 6 * D, U_ptrs, 5 * D,
                               1.0, Zy_ptrs, D, batch_mul_size_y));
-
+      // Compute cell and output values:
+      // C(x, y) = f(A(x,y)) * f(Gi(x,y)) + C(x,y-1) * f(Gy(x,y)) + C(x-1,y) * f(Gx(x,y))
+      // O(x, y) = f(C(x,y)) * f(Go(x,y))
       kernel_bw_elemwise_ops<T, FG, FI, FO>
           <<<GRID_SIZE, BLOCK_SIZE>>>(H, W, N, D, t, Tn, Tmin, S, Q, Z);
       CHECK_LAST_CUDA_CALL();
@@ -523,6 +528,7 @@ inline void bw_input(
   cublasHandle_t handle;
   CHECK_CUBLAS_CALL(cublasCreate(&handle));
   T* Q = reinterpret_cast<T*>(rspace);
+
   // Compute dJ/dI(y,x)
   for (int z = 0; z < 4; ++z) {
     CHECK_CUBLAS_CALL(gemm_gpu<T>(

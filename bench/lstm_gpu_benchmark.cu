@@ -294,32 +294,32 @@ static void BM_bw_ALL(benchmark::State& state) {
 
 #define INSTANTIATE_BENCHMARKS(TYPE)                                    \
   BENCHMARK_TEMPLATE(BM_fw_inference, TYPE)                             \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   BENCHMARK_TEMPLATE(BM_fw_training, TYPE)                              \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   BENCHMARK_TEMPLATE(BM_bw_gates, TYPE)                                 \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   BENCHMARK_TEMPLATE(BM_bw_input, TYPE)                                 \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   BENCHMARK_TEMPLATE(BM_bw_param, TYPE)                                 \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   BENCHMARK_TEMPLATE(BM_bw_ALL, TYPE)                                   \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime()
 
