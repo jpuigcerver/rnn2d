@@ -1,5 +1,38 @@
 local LSTM, parent = torch.class('rnn2d.LSTM', 'nn.Module')
 
+LSTM.workspace_inference_size = {
+  ['torch.FloatTensor']      =
+    rnn2d.cpu.rnn2d_lstm_cpu_float_inference_workspace_size,
+  ['torch.DoubleTensor']     =
+    rnn2d.cpu.rnn2d_lstm_cpu_double_inference_workspace_size,
+  ['torch.CudaTensor']       =
+    rnn2d.gpu.rnn2d_lstm_gpu_float_inference_workspace_size,
+  ['torch.CudaDoubleTensor'] =
+    rnn2d.gpu.rnn2d_lstm_gpu_double_inference_workspace_size
+}
+
+LSTM.workspace_training_size = {
+  ['torch.FloatTensor']      =
+    rnn2d.cpu.rnn2d_lstm_cpu_float_training_workspace_size,
+  ['torch.DoubleTensor']     =
+    rnn2d.cpu.rnn2d_lstm_cpu_double_training_workspace_size,
+  ['torch.CudaTensor']       =
+    rnn2d.gpu.rnn2d_lstm_gpu_float_training_workspace_size,
+  ['torch.CudaDoubleTensor'] =
+    rnn2d.gpu.rnn2d_lstm_gpu_double_training_workspace_size
+}
+
+LSTM.reserve_size = {
+  ['torch.FloatTensor']      =
+    rnn2d.cpu.rnn2d_lstm_cpu_float_training_reserve_size,
+  ['torch.DoubleTensor']     =
+    rnn2d.cpu.rnn2d_lstm_cpu_double_training_reserve_size,
+  ['torch.CudaTensor']       =
+    rnn2d.gpu.rnn2d_lstm_gpu_float_training_reserve_size,
+  ['torch.CudaDoubleTensor'] =
+    rnn2d.gpu.rnn2d_lstm_gpu_double_training_reserve_size
+}
+
 LSTM.fw_inference = {
   ['torch.FloatTensor']      = rnn2d.cpu.rnn2d_lstm_cpu_float_fw_inference,
   ['torch.DoubleTensor']     = rnn2d.cpu.rnn2d_lstm_cpu_double_fw_inference,
@@ -44,10 +77,10 @@ function LSTM:__init(inputSize, hiddenSize)
    self.hiddenSize = hiddenSize
 
    self.weight = torch.Tensor():type(self:type())
-   self.workspace = torch.Tensor():type(self:type())
    self.output = torch.Tensor():type(self:type())
    self.gradInput = torch.Tensor():type(self:type())
    self.gradWeight = torch.Tensor():type(self:type())
+   self.reserve = torch.Tensor():type(self:type())
 
    self._backprop_workspace_done = false
 
@@ -79,26 +112,56 @@ function LSTM:makeContiguous(input, gradOutput)
   return input, gradOutput
 end
 
+function LSTM:getWorkspacePtr(H, W, N, D)
+  local wss = nil
+  -- In which device and stream are we running? Use -1, 0 for CPU.
+  local device, stream = -1, 0
+  if self:type():find('torch.Cuda') ~= nil then
+    device = cutorch.getDevice()
+    stream = cutorch.getStream()
+  end
+  if self.train then wss = LSTM.workspace_training_size[self:type()]
+  else wss = LSTM.workspace_inference_size[self:type()] end
+  assert(wss ~= nil, ('Unknown size for type %q'):format(self:type()))
+  rnn2d.setSharedWorkspaceSize(tonumber(wss(H, W, N, D)), true, device, stream)
+  return rnn2d.getSharedWorkspace(device, stream)
+end
+
 function LSTM:updateOutput(input)
   assert(input:dim() == 4, 'Input must have 4 dimensions: H x W x N x D')
   local H, W, N, K = input:size(1), input:size(2), input:size(3), input:size(4)
   local D = self.hiddenSize
   assert(self.inputSize == K, 'Incorrect input size!')
-  self._backprop_workspace_done = false
   local x = self:makeContiguous(input)
   -- TODO(jpuigcerver): Use specialized functions for inference which require
   -- less computation and/or space
-  local fw = LSTM.fw_training[self:type()]
-  assert(fw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
   self.output = self.output:resize(H, W, N, 4 * D)
-  self.workspace = self.workspace:resize(self.output:nElement() * 2 * 6):zero()
-  self.gradInput:zero()
-  fw(H, W, N, K, D, torch.data(x), nil,	torch.data(self.weight),
-     torch.data(self.output), torch.data(self.workspace))
+  -- Get workspace to do the forward pass
+  local wsPtr = self:getWorkspacePtr(H, W, N, D)
+  if self.train then
+    -- Get reserved space needed to do the forward/backward pass
+    local rss = LSTM.reserve_size[self:type()]
+    assert(rss ~= nil, ('Unknown size for type %q'):format(self:type()))
+    rss = math.ceil(tonumber(rss(H, W, N, D)) / self.reserve:elementSize())
+    self.reserve:resize(rss)
+    -- Do the forward pass for training
+    local fw = LSTM.fw_training[self:type()]
+    assert(fw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
+    self.gradInput = self.gradInput:resizeAs(x):zero()
+    fw(H, W, N, K, D, x:data(), nil, self.weight:data(), self.output:data(),
+       wsPtr, self.reserve:data())
+  else
+    -- Do the forward pass for inference
+    local fw = LSTM.fw_inference[self:type()]
+    assert(fw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
+    fw(H, W, N, K, D, x:data(), nil, self.weight:data(), self.output:data(),
+       wsPtr)
+  end
+  self._backprop_workspace_done = false
   return self.output
 end
 
-function LSTM:backpropWorkspace(input, gradOutput)
+function LSTM:backpropCellsAndGates(input, gradOutput)
   assert(self.train)
   assert(input:dim() == 4, 'Input must have 4 dimensions: H x W x N x D')
   local H, W, N, K = input:size(1), input:size(2), input:size(3), input:size(4)
@@ -108,42 +171,48 @@ function LSTM:backpropWorkspace(input, gradOutput)
 	 'output and gradOutput sizes differ')
   local x, dy = self:makeContiguous(input, gradOutput)
   if not self._backprop_workspace_done then
+    -- Get workspace to do the backward pass
+    local wsPtr = self:getWorkspacePtr(H, W, N, D)
+    -- Do backward pass through the LSTM cells and gates
     local bw = LSTM.bw_workspace[self:type()]
     assert(bw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
-    bw(H, W, N, K, D, torch.data(x), nil, torch.data(self.weight),
-       torch.data(self.output), torch.data(dy), torch.data(self.workspace))
+    bw(H, W, N, K, D, x:data(), nil, self.weight:data(), self.output:data(),
+       dy:data(), wsPtr, self.reserve:data())
     self._backprop_workspace_done = true
   end
   return x
 end
 
 function LSTM:updateGradInput(input, gradOutput)
-  local x = self:backpropWorkspace(input, gradOutput)
+  local x = self:backpropCellsAndGates(input, gradOutput)
   local H, W, N, K = x:size(1), x:size(2), x:size(3), x:size(4)
   local D = self.hiddenSize
+  -- Get workspace to do the backward pass
+  local wsPtr = self:getWorkspacePtr(H, W, N, D)
+  -- Do the backward pass through the LSTM input
   local bw = LSTM.bw_input[self:type()]
   assert(bw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
-  if not self.gradInput:isSameSizeAs(x) then
-    self.gradInput = self.gradInput:resizeAs(x):zero()
-  end
-  bw(H, W, N, K, D, torch.data(self.weight), 1.0, torch.data(self.gradInput),
-     torch.data(self.workspace))
+  bw(H, W, N, K, D, self.weight:data(), 1.0, self.gradInput:data(),
+     wsPtr, self.reserve:data())
   return self.gradInput
 end
 
 function LSTM:accGradParameters(input, gradOutput, scale)
   scale = scale or 1
-  local x = self:backpropWorkspace(input, gradOutput)
+  local x = self:backpropCellsAndGates(input, gradOutput)
   local H, W, N, K = x:size(1), x:size(2), x:size(3), x:size(4)
   local D = self.hiddenSize
+  -- Get workspace to do the backward pass
+  local wsPtr = self:getWorkspacePtr(H, W, N, D)
+  -- Do the backward pass through the LSTM parameters
   local bw = LSTM.bw_param[self:type()]
   assert(bw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
-  bw(H, W, N, K, D, torch.data(x), torch.data(self.output), scale,
-     torch.data(self.gradWeight), torch.data(self.workspace))
+  bw(H, W, N, K, D, x:data(), self.output:data(), scale, self.gradWeight:data(),
+     wsPtr, self.reserve:data())
 end
 
 function LSTM:clearState()
-  nn.utils.clear(self, '_input', '_gradOutput', 'workspace')
+  nn.utils.clear(self, '_input', '_gradOutput', 'reserve')
   return parent.clearState(self)
 end
 

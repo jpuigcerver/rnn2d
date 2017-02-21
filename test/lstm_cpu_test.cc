@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <glog/logging.h>
 
 #include <rnn2d/lstm_cpu.h>
 #include "lstm_common_test.h"
@@ -20,7 +21,7 @@
   TEST(lstm_test, rnn2d_lstm_cpu_ ## TYPE ## _fw_training) {            \
     std::vector<TYPE> O(H * W * N * D * 4);                             \
     const size_t workspaceSize =                                        \
-        rnn2d_lstm_cpu_##TYPE##_inference_workspace_size(H, W, N, D);   \
+        rnn2d_lstm_cpu_##TYPE##_training_workspace_size(H, W, N, D);    \
     const size_t reserveSize =                                          \
         rnn2d_lstm_cpu_##TYPE##_training_reserve_size(H, W, N, D);      \
     std::vector<char> workspace(workspaceSize);                         \
