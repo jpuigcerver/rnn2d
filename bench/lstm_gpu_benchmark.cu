@@ -52,11 +52,7 @@ class LstmWrapper {
     data_.resize(data_size);
     wrspace_.resize(wrspace_size);
     LOG(INFO) << "Filling " << data_size_mb << "MB with random numbers...";
-    curandGenerator_t gen;
-    CHECK_CURAND(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
-    CHECK_CURAND(curandSetPseudoRandomGeneratorSeed(gen, 1234ULL));
-    CHECK_CURAND(GenerateUniform(gen, data_.data().get(), data_size));
-    CHECK_CURAND(curandDestroyGenerator(gen));
+    GenerateUniform(data_.data().get(), data_size);
     LOG(INFO) << "Done!";
   }
 
@@ -90,7 +86,7 @@ class LstmWrapper {
   static size_t GetInferenceWorkspaceSize(const int H, const int W, const int N, const int D);
   static size_t GetTrainingWorkspaceSize(const int H, const int W, const int N, const int D);
   static size_t GetReserveSize(const int H, const int W, const int N, const int D);
-  static curandStatus_t GenerateUniform(curandGenerator_t gen, T* data, size_t n);
+  static void GenerateUniform(T* data, size_t n);
 
   static device_vector<T> data_;
   static device_vector<char> wrspace_;
@@ -140,13 +136,23 @@ size_t LstmWrapper<double>::GetReserveSize(const int H, const int W, const int N
 }
 
 template <>
-curandStatus_t LstmWrapper<float>::GenerateUniform(curandGenerator_t gen, float* data, size_t n) {
-  return curandGenerateUniform(gen, data, n);
+void LstmWrapper<float>::GenerateUniform(float* data, size_t n) {
+  curandGenerator_t gen;
+  CHECK_CURAND(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
+  CHECK_CURAND(curandSetPseudoRandomGeneratorSeed(gen, 1234ULL));
+  CHECK_CURAND(curandGenerateUniform(gen, data, n));
+  CHECK_CUDA_CALL(cudaDeviceSynchronize());
+  CHECK_CURAND(curandDestroyGenerator(gen));
 }
 
 template <>
-curandStatus_t LstmWrapper<double>::GenerateUniform(curandGenerator_t gen, double* data, size_t n) {
-  return curandGenerateUniformDouble(gen, data, n);
+void LstmWrapper<double>::GenerateUniform(double* data, size_t n) {
+  curandGenerator_t gen;
+  CHECK_CURAND(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
+  CHECK_CURAND(curandSetPseudoRandomGeneratorSeed(gen, 1234ULL));
+  CHECK_CURAND(curandGenerateUniformDouble(gen, data, n));
+  CHECK_CUDA_CALL(cudaDeviceSynchronize());
+  CHECK_CURAND(curandDestroyGenerator(gen));
 }
 
 template <>
