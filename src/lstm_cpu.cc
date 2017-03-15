@@ -12,6 +12,8 @@
 #include <rnn2d/lstm_impl.h>
 #include <rnn2d/math_cpu.h>
 
+namespace cpu {
+
 template <typename T>
 inline size_t get_inference_workspace_size(
     const int H, const int W, const int N, const int D) {
@@ -516,6 +518,8 @@ inline void bw_param(
   print_U("DU", dP, K, D);
   print_V("DV", dP, K, D);*/
 }
+
+}  // namespace cpu
 
 extern "C" {
   DEFINE_WRAPPERS(cpu, float)

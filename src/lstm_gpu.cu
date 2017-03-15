@@ -19,6 +19,8 @@
 #define BLOCK_SIZE 256
 #define GRID_SIZE 128
 
+namespace gpu {
+
 #define STREAMS_CREATE(N)                               \
   for (int i = 0; i < (N); ++i) {                       \
     CHECK_CUDA_CALL(cudaStreamCreate(&stream[i]));      \
@@ -562,6 +564,8 @@ inline void bw_param(
   STREAMS_DESTROY(4 * 4);
   CHECK_CUBLAS_CALL(cublasDestroy(handle));
 }
+
+}  // namespace gpu
 
 extern "C" {
   DEFINE_WRAPPERS(gpu, float)

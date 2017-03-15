@@ -74,7 +74,7 @@
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const int* shape, const TYPE* param,           \
       TYPE* output, void* workspace) {                                  \
-    fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(         \
+    DEVICE::fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >( \
         H, W, N, K, D, input, shape, param, output,                     \
         workspace, nullptr);                                            \
   }                                                                     \
@@ -83,7 +83,7 @@
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const int* shape, const TYPE* param,           \
       TYPE* output, void* workspace, void* reserve) {                   \
-    fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(         \
+    DEVICE::fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >( \
         H, W, N, K, D, input, shape, param, output,                     \
         workspace, reserve);                                            \
   }                                                                     \
@@ -93,7 +93,7 @@
       const TYPE* input, const int* shape, const TYPE* param,           \
       const TYPE* output, const TYPE* dOutput, TYPE* dInput,            \
       void* workspace, void* reserve) {                                 \
-    bw_data< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(             \
+    DEVICE::bw_data< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(   \
         H, W, N, K, D, input, shape, param, output, dOutput, dInput,    \
         workspace, reserve);                                            \
   }                                                                     \
@@ -102,23 +102,23 @@
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const TYPE* output, const TYPE scale,          \
       TYPE* dParam, void* workspace, void* reserve) {                   \
-    bw_param< TYPE >(H, W, N, K, D, input, output, scale, dParam,       \
+    DEVICE::bw_param< TYPE >(H, W, N, K, D, input, output, scale, dParam, \
                      workspace, reserve);                               \
   }                                                                     \
                                                                         \
   size_t rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _inference_workspace_size( \
       const int H, const int W, const int N, const int D) {             \
-    return get_inference_workspace_size<TYPE>(H, W, N, D);              \
+    return DEVICE::get_inference_workspace_size<TYPE>(H, W, N, D);    \
   }                                                                     \
                                                                         \
   size_t rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _training_workspace_size( \
       const int H, const int W, const int N, const int D) {             \
-    return get_training_workspace_size<TYPE>(H, W, N, D);               \
+    return DEVICE::get_training_workspace_size<TYPE>(H, W, N, D);     \
   }                                                                     \
                                                                         \
   size_t rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _training_reserve_size(  \
       const int H, const int W, const int N, const int D) {             \
-    return get_training_reserve_size<TYPE>(H, W, N, D);                 \
+    return DEVICE::get_training_reserve_size<TYPE>(H, W, N, D);       \
   }
 
 #endif  // RNN2D_LSTM_IMPL_H_
