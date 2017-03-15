@@ -65,8 +65,7 @@ class LstmWrapper {
 
   inline void ForwardInference();
   inline void ForwardTraining();
-  inline void BackwardGates();
-  inline void BackwardInput();
+  inline void BackwardData();
   inline void BackwardParam();
 
 
@@ -176,23 +175,13 @@ void LstmWrapper<double>::ForwardTraining() {
 }
 
 template <>
-void LstmWrapper<float>::BackwardGates() {
-  rnn2d_lstm_gpu_float_bw_workspace(H_, W_, N_, K_, D_, input_, nullptr, param_, output_, gradOutput_, wspace_, rspace_);
+void LstmWrapper<float>::BackwardData() {
+  rnn2d_lstm_gpu_float_bw_data(H_, W_, N_, K_, D_, input_, nullptr, param_, output_, gradOutput_, gradInput_, wspace_, rspace_);
 }
 
 template <>
-void LstmWrapper<double>::BackwardGates() {
-  rnn2d_lstm_gpu_double_bw_workspace(H_, W_, N_, K_, D_, input_, nullptr, param_, output_, gradOutput_, wspace_, rspace_);
-}
-
-template <>
-void LstmWrapper<float>::BackwardInput() {
-  rnn2d_lstm_gpu_float_bw_input(H_, W_, N_, K_, D_, param_, 1.0, gradInput_, wspace_, rspace_);
-}
-
-template <>
-void LstmWrapper<double>::BackwardInput() {
-  rnn2d_lstm_gpu_double_bw_input(H_, W_, N_, K_, D_, param_, 1.0, gradInput_, wspace_, rspace_);
+void LstmWrapper<double>::BackwardData() {
+  rnn2d_lstm_gpu_double_bw_data(H_, W_, N_, K_, D_, input_, nullptr, param_, output_, gradOutput_, gradInput_, wspace_, rspace_);
 }
 
 template <>
@@ -236,31 +225,16 @@ static void BM_fw_training(benchmark::State& state) {
 }
 
 template <typename T>
-static void BM_bw_gates(benchmark::State& state) {
+static void BM_bw_data(benchmark::State& state) {
   const int H = state.range(0);
   const int W = state.range(1);
   const int N = state.range(2);
   const int K = state.range(3);
   const int D = state.range(4);
   LstmWrapper<T> lstm(H, W, N, K, D);
-  lstm.BackwardGates();
+  lstm.BackwardData();
   while (state.KeepRunning()) {
-    lstm.BackwardGates();
-  }
-  state.SetItemsProcessed(state.iterations() * H * W * N * K * D);
-}
-
-template <typename T>
-static void BM_bw_input(benchmark::State& state) {
-  const int H = state.range(0);
-  const int W = state.range(1);
-  const int N = state.range(2);
-  const int K = state.range(3);
-  const int D = state.range(4);
-  LstmWrapper<T> lstm(H, W, N, K, D);
-  lstm.BackwardInput();
-  while (state.KeepRunning()) {
-    lstm.BackwardInput();
+    lstm.BackwardData();
   }
   state.SetItemsProcessed(state.iterations() * H * W * N * K * D);
 }
@@ -288,10 +262,9 @@ static void BM_bw_ALL(benchmark::State& state) {
   const int K = state.range(3);
   const int D = state.range(4);
   LstmWrapper<T> lstm(H, W, N, K, D);
-  lstm.BackwardGates();
+  lstm.BackwardData();
   while (state.KeepRunning()) {
-    lstm.BackwardGates();
-    lstm.BackwardInput();
+    lstm.BackwardData();
     lstm.BackwardParam();
   }
   state.SetItemsProcessed(state.iterations() * H * W * N * K * D);
@@ -309,12 +282,7 @@ static void BM_bw_ALL(benchmark::State& state) {
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
-  BENCHMARK_TEMPLATE(BM_bw_gates, TYPE)                                 \
-  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
-  ->Unit(benchmark::kMicrosecond)                                       \
-  ->UseRealTime();                                                      \
-                                                                        \
-  BENCHMARK_TEMPLATE(BM_bw_input, TYPE)                                 \
+  BENCHMARK_TEMPLATE(BM_bw_data, TYPE)                                  \
   ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \

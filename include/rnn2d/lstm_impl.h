@@ -30,42 +30,44 @@
 
 // Useful defines to index several arrays:
 // Input array
-#define I_ptr(y, x, n, d)                       \
-  (I  + (((y) * W + (x)) * N + (n)) * K + (d))
-#define dI_ptr(y, x, n, d)                      \
-  (dI + (((y) * W + (x)) * N + (n)) * K + (d))
+#define I_ptr(ptr, y, x, n, d)                          \
+  (ptr + (y) * W * N * K + (x) * N * K + (n) * K + (d))
 // Output array
-#define O_ptr(y, x, n, z, d)                                    \
-  (O  + ((((y) * W + (x)) * N + (n)) * 4 + (z)) * D + (d))
-#define dO_ptr(y, x, n, z, d)                                   \
-  (dO + ((((y) * W + (x)) * N + (n)) * 4 + (z)) * D + (d))
+#define O_ptr(ptr, y, x, n, z, d)                                       \
+  (ptr + (y) * W * N * 4 * D + (x) * N * 4 * D + (n) * 4 * D + (z) * D + (d))
 // Bias array
-#define B_ptr(z, g, d)                                  \
-  (P  + (z) * (1 + K + D + D) * 5 * D + (g) * D + (d))
-#define dB_ptr(z, g, d)                                 \
-  (dP + (z) * (1 + K + D + D) * 5 * D + (g) * D + (d))
+#define B_ptr(ptr, z, g, d)                             \
+  (ptr + (z) * (1 + K + D + D) * 5 * D + (g) * D + (d))
 // Input weights array
-#define W_ptr(z, k, g, d)                                               \
-  (P  + ((z) * (1 + K + D + D) + 1 + (k)) * 5 * D + (g) * D + (d))
-#define dW_ptr(z, k, g, d)                                              \
-  (dP + ((z) * (1 + K + D + D) + 1 + (k)) * 5 * D + (g) * D + (d))
+#define W_ptr(ptr, z, k, g, d)                                          \
+  (ptr + (z) * (1 + K + D + D) * 5 * D + 5 * D +                        \
+   (k) * 5 * D + (g) * D + (d))
 // Recurrent-y array
-#define U_ptr(z, d1, g, d2)                                             \
-  (P  + ((z) * (1 + K + D + D) + 1 + K + (d1)) * 5 * D + (g) * D + (d2))
-#define dU_ptr(z, d1, g, d2)                                            \
-  (dP + ((z) * (1 + K + D + D) + 1 + K + (d1)) * 5 * D + (g) * D + (d2))
+#define U_ptr(ptr, z, d1, g, d2)                             \
+  (ptr + (z) * (1 + K + D + D) * 5 * D + 5 * D + K * 5 * D + \
+   (d1) * 5 * D + (g) * D + (d2))
 // Recurrent-x array
-#define V_ptr(z, d1, g, d2)                                             \
-  (P  + ((z) * (1 + K + D + D) + 1 + K + D + (d1)) * 5 * D + (g) * D + (d2))
-#define dV_ptr(z, d1, g, d2)                                            \
-  (dP + ((z) * (1 + K + D + D) + 1 + K + D + (d1)) * 5 * D + (g) * D + (d2))
-
+#define V_ptr(ptr, z, d1, g, d2)                                        \
+  (ptr + (z) * (1 + K + D + D) * 5 * D + 5 * D + K * 5 * D + D * 5 * D + \
+   (d1) * 5 * D + (g) * D + (d2))
 // Reserve array
 #define Q_ptr(z, y, x, n, g, d)                                         \
-  (Q  + (((((z) * H + (y)) * W + (x)) * N + (n)) * 5 + (g)) * D + (d))
+  (Q +                                                                  \
+   (z) * H * W * N * 5 * D +                                            \
+   (y) * W * N * 5 * D +                                                \
+   (x) * N * 5 * D +                                                    \
+   (n) * 5 * D +                                                        \
+   (g) * D +                                                            \
+   (d))
 // Workspace array
 #define Z_ptr(g, z, y, x, n, d)                                         \
-  (Z  + (((((g) * 4 + (z)) * H + (y)) * W + (x)) * N + (n)) * D + (d))
+  (Z + \
+   (g) * 4 * H * W * N * D +                    \
+   (z) * H * W * N * D +                                                \
+   (y) * W * N * D + \
+   (x) * N * D + \
+   (n) * D + \
+   (d))
 
 #define DEFINE_WRAPPERS(DEVICE, TYPE)                                   \
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference(             \
@@ -86,22 +88,14 @@
         workspace, reserve);                                            \
   }                                                                     \
                                                                         \
-  void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_workspace(             \
+  void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_data(                  \
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const int* shape, const TYPE* param,           \
-      const TYPE* output, const TYPE* dOutput,                          \
+      const TYPE* output, const TYPE* dOutput, TYPE* dInput,            \
       void* workspace, void* reserve) {                                 \
-    bw_workspace< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(        \
-        H, W, N, K, D, input, shape, param, output, dOutput,            \
+    bw_data< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(             \
+        H, W, N, K, D, input, shape, param, output, dOutput, dInput,    \
         workspace, reserve);                                            \
-  }                                                                     \
-                                                                        \
-  void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_input(                 \
-      const int H, const int W, const int N, const int K, const int D,  \
-      const TYPE* param, const TYPE scale, TYPE* dInput,                \
-      void* workspace, void* reserve) {                                 \
-    bw_input< TYPE >(H, W, N, K, D, param, scale, dInput,               \
-                     workspace, reserve);                               \
   }                                                                     \
                                                                         \
   void rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _bw_param(                 \

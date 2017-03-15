@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cassert>
 #include <cstdio>
+#include <iostream>
 
 #include <glog/logging.h>
 #include <thrust/device_vector.h>
@@ -75,7 +76,7 @@ void kernel_init_Q_with_bias(
     const int x = (ii / (N * 5 * D)) % W;      // x \in [0 ... W-1]
     const int y = (ii / (W * N * 5 * D)) % H;  // y \in [0 ... H-1]
     const int z = (ii / (H * W * N * 5 * D));  // z \in [0 ... 3]
-    *Q_ptr(z, y, x, n, g, d) = *B_ptr(z, g, d);
+    *Q_ptr(z, y, x, n, g, d) = *B_ptr(P, z, g, d);
   }
 }
 
@@ -91,33 +92,33 @@ void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
     const int z = (ii / (Tn * N * D));   // direction
     const int i = e + Tmin;
     const int j = t - i;
-    const int y  = (z == 0 || z == 1) ? i : H - i - 1;
-    const int x  = (z == 0 || z == 2) ? j : W - j - 1;
+    const int y  = (z == 0 || z == 2) ? i : H - i - 1;
+    const int x  = (z == 0 || z == 1) ? j : W - j - 1;
     if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
-      const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
-      const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
-      const T f_a   = FI::f(*Q_ptr(z, y, x, n, 0, d));  // f_i(input)
-      const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 1, d));  // f_g(input gate)
-      const T f_go  = FG::f(*Q_ptr(z, y, x, n, 2, d));  // f_g(output gate)
-      const T f_gfy = FG::f(*Q_ptr(z, y, x, n, 3, d));  // f_g(forget_y gate)
-      const T f_gfx = FG::f(*Q_ptr(z, y, x, n, 4, d));  // f_g(forget_x gate)
-      const T C_10  = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 0, d) : 0;
-      const T C_01  = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 0, d) : 0;
-      const T C_00  = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;  // state
-      const T O_00  = f_go * FO::f(C_00);                        // output
-      *Q_ptr(z, y, x, n, 0, d) = C_00;
-      *Q_ptr(z, y, x, n, 1, d) = f_gi;
-      *Q_ptr(z, y, x, n, 2, d) = f_go;
-      *Q_ptr(z, y, x, n, 3, d) = f_gfy;
-      *Q_ptr(z, y, x, n, 4, d) = f_gfx;
-      *O_ptr(y, x, n, z, d)    = O_00;
+      const int yp = (z == 0 || z == 2) ? y - 1 : y + 1;
+      const int xp = (z == 0 || z == 1) ? x - 1 : x + 1;
+      const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 0, d));  // input gate
+      const T f_gfy = FG::f(*Q_ptr(z, y, x, n, 1, d));  // fgt_y gate
+      const T f_gfx = FG::f(*Q_ptr(z, y, x, n, 2, d));  // fgt_x gate
+      const T f_go  = FG::f(*Q_ptr(z, y, x, n, 3, d));  // output gate
+      const T f_a   = FI::f(*Q_ptr(z, y, x, n, 4, d));  // pre-cell
+      const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 4, d) : 0;
+      const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 4, d) : 0;
+      const T C_00 = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;  // state
+      const T O_00 = f_go * FO::f(C_00);                        // output
+      *Q_ptr(z, y, x, n, 0, d) = f_gi;
+      *Q_ptr(z, y, x, n, 1, d) = f_gfy;
+      *Q_ptr(z, y, x, n, 2, d) = f_gfx;
+      *Q_ptr(z, y, x, n, 3, d) = f_go;
+      *Q_ptr(z, y, x, n, 4, d) = C_00;
+      *O_ptr(O, y, x, n, z, d) = O_00;
     } else {
       *Q_ptr(z, y, x, n, 0, d) = 0;
       *Q_ptr(z, y, x, n, 1, d) = 0;
       *Q_ptr(z, y, x, n, 2, d) = 0;
       *Q_ptr(z, y, x, n, 3, d) = 0;
       *Q_ptr(z, y, x, n, 4, d) = 0;
-      *O_ptr(y, x, n, z, d)    = 0;
+      *O_ptr(O, y, x, n, z, d) = 0;
     }
   }
 }
@@ -166,8 +167,8 @@ inline void fw_training(
   CHECK_CUDA_CALL(cudaMallocHost(
       &ptrs_cpu, sizeof(const T**) * 2 * 3 * 4 * std::min(H, W)));
   ptrs_cpu[0]  = ptrs_cpu[1] = ptrs_cpu[2] = ptrs_cpu[3] = I;
-  ptrs_cpu[4]  = W_ptr(0, 0, 0, 0); ptrs_cpu[5] = W_ptr(1, 0, 0, 0);
-  ptrs_cpu[6]  = W_ptr(2, 0, 0, 0); ptrs_cpu[7] = W_ptr(3, 0, 0, 0);
+  ptrs_cpu[4]  = W_ptr(P, 0, 0, 0, 0); ptrs_cpu[5] = W_ptr(P, 1, 0, 0, 0);
+  ptrs_cpu[6]  = W_ptr(P, 2, 0, 0, 0); ptrs_cpu[7] = W_ptr(P, 3, 0, 0, 0);
   ptrs_cpu[8]  = Q_ptr(0, 0, 0, 0, 0, 0);
   ptrs_cpu[9]  = Q_ptr(1, 0, 0, 0, 0, 0);
   ptrs_cpu[10] = Q_ptr(2, 0, 0, 0, 0, 0);
@@ -200,24 +201,24 @@ inline void fw_training(
         // (y, x) coordinates of the e-th element in the z-th diagonal.
         const int i = e + Tmin;
         const int j = t - i;
-        const int y  = (z == 0 || z == 1) ? i : H - i - 1;
-        const int x  = (z == 0 || z == 2) ? j : W - j - 1;
-        const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;
-        const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;
+        const int y  = (z == 0 || z == 2) ? i : H - i - 1;
+        const int x  = (z == 0 || z == 1) ? j : W - j - 1;
+        const int yp = (z == 0 || z == 2) ? y - 1 : y + 1;
+        const int xp = (z == 0 || z == 1) ? x - 1 : x + 1;
         if (yp >= 0 && yp <= H - 1) {
           ptrs_cpu_y[batch_mul_size_y + 0 * 4 * std::min(H, W)] =
-              O_ptr(yp, x, 0, z, 0);
+              O_ptr(O, yp, x, 0, z, 0);
           ptrs_cpu_y[batch_mul_size_y + 1 * 4 * std::min(H, W)] =
-              U_ptr(z, 0, 0, 0);
+              V_ptr(P, z, 0, 0, 0);
           ptrs_cpu_y[batch_mul_size_y + 2 * 4 * std::min(H, W)] =
               Q_ptr(z, y, x, 0, 0, 0);
           ++batch_mul_size_y;
         }
         if (xp >= 0 && xp <= W - 1) {
           ptrs_cpu_x[batch_mul_size_x + 0 * 4 * std::min(H, W)] =
-              O_ptr(y, xp, 0, z, 0);
+              O_ptr(O, y, xp, 0, z, 0);
           ptrs_cpu_x[batch_mul_size_x + 1 * 4 * std::min(H, W)] =
-              V_ptr(z, 0, 0, 0);
+              U_ptr(P, z, 0, 0, 0);
           ptrs_cpu_x[batch_mul_size_x + 2 * 4 * std::min(H, W)] =
               Q_ptr(z, y, x, 0, 0, 0);
           ++batch_mul_size_x;
@@ -231,19 +232,19 @@ inline void fw_training(
                    cudaMemcpyHostToDevice));
     // [A,Gi,Go,Gx,Gy](x,y) += O(x-1,y) * [V_a,V_i,V_o,V_x,V_y]
     const T** Ox_ptrs = ptrs_gpu + 0 * 4 * std::min(H, W);
-    const T** V_ptrs = ptrs_gpu + 1 * 4 * std::min(H, W);
+    const T** U_ptrs  = ptrs_gpu + 1 * 4 * std::min(H, W);
     T** Qx_ptrs = const_cast<T**>(ptrs_gpu) + 2 * 4 * std::min(H, W);
     CHECK_CUBLAS_CALL(
         gemm_gpu_batched<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
-                            1.0, Ox_ptrs, 4 * D, V_ptrs, 5 * D,
+                            1.0, Ox_ptrs, 4 * D, U_ptrs, 5 * D,
                             1.0, Qx_ptrs, 5 * D, batch_mul_size_x));
     // [A,Gi,Go,Gx,Gy](x,y) += O(x,y-1) * [U_a,U_i,U_o,U_x,U_y]
     const T** Oy_ptrs = ptrs_gpu + (3 + 0) * 4 * std::min(H, W);
-    const T** U_ptrs = ptrs_gpu + (3 + 1) * 4 * std::min(H, W);
+    const T** V_ptrs  = ptrs_gpu + (3 + 1) * 4 * std::min(H, W);
     T** Qy_ptrs = const_cast<T**>(ptrs_gpu + (3 + 2) * 4 * std::min(H, W));
     CHECK_CUBLAS_CALL(
         gemm_gpu_batched<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
-                            1.0, Oy_ptrs, 4 * D, U_ptrs, 5 * D,
+                            1.0, Oy_ptrs, 4 * D, V_ptrs, 5 * D,
                             1.0, Qy_ptrs, 5 * D, batch_mul_size_y));
     // Compute cell states
     kernel_fw_elemwise_ops<T, FG, FI, FO>
@@ -266,26 +267,26 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
     const int z = (ii / (Tn * N * D));
     const int i = e + Tmin;
     const int j = t - i;
-    const int y = (z == 0 || z == 1) ? i : H - i - 1;
-    const int x = (z == 0 || z == 2) ? j : W - j - 1;
-    T* dA_00  = Q_ptr(z, y, x, n, 0, d);   // currently contains C_00
-    T* dGi_00 = Q_ptr(z, y, x, n, 1, d);   // currenlty contains f(Gi_00)
-    T* dGo_00 = Q_ptr(z, y, x, n, 2, d);   // currently contains f(Go_00)
-    T* dGy_00 = Q_ptr(z, y, x, n, 3, d);   // currently contains f(Gy_00)
-    T* dGx_00 = Q_ptr(z, y, x, n, 4, d);   // currently contains f(Gx_00)
+    const int y = (z == 0 || z == 2) ? i : H - i - 1;
+    const int x = (z == 0 || z == 1) ? j : W - j - 1;
+    T* dGi_00 = Q_ptr(z, y, x, n, 0, d);   // currenlty contains f(Gi_00)
+    T* dGy_00 = Q_ptr(z, y, x, n, 1, d);   // currently contains f(Gy_00)
+    T* dGx_00 = Q_ptr(z, y, x, n, 2, d);   // currently contains f(Gx_00)
+    T* dGo_00 = Q_ptr(z, y, x, n, 3, d);   // currently contains f(Go_00)
+    T* dA_00  = Q_ptr(z, y, x, n, 4, d);   // currently contains C_00
     if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
-      const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
-      const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
-      const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
-      const int xp = (z == 0 || z == 2) ? x - 1 : x + 1;  // previous x
+      const int yn = (z == 0 || z == 2) ? y + 1 : y - 1;  // next y
+      const int xn = (z == 0 || z == 1) ? x + 1 : x - 1;  // next x
+      const int yp = (z == 0 || z == 2) ? y - 1 : y + 1;  // previous y
+      const int xp = (z == 0 || z == 1) ? x - 1 : x + 1;  // previous x
       const T C_00   = *dA_00;
       const T fGi_00 = *dGi_00;
       const T fGo_00 = *dGo_00;
       const T fGy_00 = *dGy_00;
       const T fGx_00 = *dGx_00;
       const T dO_00  = *Z_ptr(0, z, y, x, n, d);
-      const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 0, d) : 0;
-      const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 0, d) : 0;
+      const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 4, d) : 0;
+      const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 4, d) : 0;
       const T fA_00 = fGi_00 != 0.0 ?
           (C_00 - C_10 * fGy_00 - C_01 * fGx_00) / fGi_00 : 0.0;
       // Z_10 = dC(y+1, x) * f(Gy(y+1, x))
@@ -309,13 +310,6 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
       *Z_ptr(1, z, y, x, n, d) = 0;
       *Z_ptr(2, z, y, x, n, d) = 0;
     }
-    /*printf("%d Q(%d,%d,%d,%d,0,%d) = %f\n", t, z, y, x, n, d, *dA_00);
-    printf("%d Q(%d,%d,%d,%d,1,%d) = %f\n", t, z, y, x, n, d, *dGi_00);
-    printf("%d Q(%d,%d,%d,%d,2,%d) = %f\n", t, z, y, x, n, d, *dGo_00);
-    printf("%d Q(%d,%d,%d,%d,3,%d) = %f\n", t, z, y, x, n, d, *dGy_00);
-    printf("%d Q(%d,%d,%d,%d,4,%d) = %f\n", t, z, y, x, n, d, *dGx_00);
-    printf("%d Z(1,%d,%d,%d,%d,%d) = %f\n", t, z, y, x, n, d, *Z_ptr(1, z, y, x, n, d));
-    printf("%d Z(2,%d,%d,%d,%d,%d) = %f\n", t, z, y, x, n, d, *Z_ptr(2, z, y, x, n, d)); */
   }
 }
 
@@ -329,9 +323,9 @@ void kernel_copy_Oxp_to_Q(const int H, const int W, const int N, const int D,
     const int x = (ii / (N * D)) % W;
     const int y = (ii / (W * N * D)) % H;
     const int z = ii / (H * W * N * D);
-    const int xp = (z == 0 || z == 2) ? x - 1 : x + 1; // previous x
+    const int xp = (z == 0 || z == 1) ? x - 1 : x + 1; // previous x
     Q[(z * H * W * N * D) + (y * W * N * D) + (x * N * D) + (n * D) + d] =
-        xp >= 0 && xp < W ? *O_ptr(y, xp, n, z, d) : 0;
+        xp >= 0 && xp < W ? *O_ptr(O, y, xp, n, z, d) : 0;
   }
 }
 
@@ -345,9 +339,9 @@ void kernel_copy_Oyp_to_Q(const int H, const int W, const int N, const int D,
     const int x = (ii / (N * D)) % W;
     const int y = (ii / (W * N * D)) % H;
     const int z = ii / (H * W * N * D);
-    const int yp = (z == 0 || z == 1) ? y - 1 : y + 1;  // previous y
+    const int yp = (z == 0 || z == 2) ? y - 1 : y + 1;  // previous y
     Q[(z * H * W * N * D) + (y * W * N * D) + (x * N * D) + (n * D) + d] =
-        yp >= 0 && yp < H ? *O_ptr(yp, x, n, z, d) : 0;
+        yp >= 0 && yp < H ? *O_ptr(O, yp, x, n, z, d) : 0;
   }
 }
 
@@ -361,7 +355,7 @@ void kernel_copy_dO_to_Z(const int H, const int W, const int N, const int D,
     const int n = (ii / (4 * D)) % N;        // n \in [0 ... N-1]
     const int x = (ii / (N * 4 * D)) % W;    // x \in [0 ... W-1]
     const int y = (ii / (W * N * 4 * D));    // y \in [0 ... H-1]
-    *Z_ptr(0, z, y, x, n, d) = *dO_ptr(y, x, n, z, d);
+    *Z_ptr(0, z, y, x, n, d) = *O_ptr(dO, y, x, n, z, d);
   }
 }
 
@@ -381,9 +375,9 @@ void kernel_copy_dO_to_Z(const int H, const int W, const int N, const int D,
  * dQ -> derivative of the loss w.r.t the internal states
  */
 template <typename T, typename FG, typename FI, typename FO>
-inline void bw_workspace(
+inline void bw_data(
     const int H, const int W, const int N, const int K, const int D,
-    const T* I, const int* S, const T* P, const T* O, const T* dO,
+    const T* I, const int* S, const T* P, const T* O, const T* dO, T* dI,
     void* wspace, void* rspace) {
   CHECK_NOTNULL(I);
   CHECK_NOTNULL(P);
@@ -428,15 +422,15 @@ inline void bw_workspace(
         for (int e = 0; e < Tn; ++e) {
           const int i = e + Tmin;
           const int j = t - i;
-          const int y  = (z == 0 || z == 1) ? i : H - i - 1;
-          const int x  = (z == 0 || z == 2) ? j : W - j - 1;
-          const int yn = (z == 0 || z == 1) ? y + 1 : y - 1;  // next y
-          const int xn = (z == 0 || z == 2) ? x + 1 : x - 1;  // next x
+          const int y  = (z == 0 || z == 2) ? i : H - i - 1;
+          const int x  = (z == 0 || z == 1) ? j : W - j - 1;
+          const int yn = (z == 0 || z == 2) ? y + 1 : y - 1;  // next y
+          const int xn = (z == 0 || z == 1) ? x + 1 : x - 1;  // next x
           if (yn >= 0 && yn < H) {
             ptrs_cpu_y[batch_mul_size_y + 0 * 4 * std::min(H, W)] =
                 Q_ptr(z, yn, x, 0, 0, 0);
             ptrs_cpu_y[batch_mul_size_y + 1 * 4 * std::min(H, W)] =
-                U_ptr(z, 0, 0, 0);
+                V_ptr(P, z, 0, 0, 0);
             ptrs_cpu_y[batch_mul_size_y + 2 * 4 * std::min(H, W)] =
                 Z_ptr(0, z, y, x, 0, 0);
             ++batch_mul_size_y;
@@ -445,7 +439,7 @@ inline void bw_workspace(
             ptrs_cpu_x[batch_mul_size_x + 0 * 4 * std::min(H, W)] =
                 Q_ptr(z, y, xn, 0, 0, 0);
             ptrs_cpu_x[batch_mul_size_x + 1 * 4 * std::min(H, W)] =
-                V_ptr(z, 0, 0, 0);
+                U_ptr(P, z, 0, 0, 0);
             ptrs_cpu_x[batch_mul_size_x + 2 * 4 * std::min(H, W)] =
                 Z_ptr(0, z, y, x, 0, 0);
             ++batch_mul_size_x;
@@ -460,19 +454,19 @@ inline void bw_workspace(
                      cudaMemcpyHostToDevice));
       // [A,Gi,Go,Gx,Gy](x,y) += O(x-1,y) * [V_a,V_i,V_o,V_x,V_y]
       const T** dQx_ptrs = ptrs_gpu + 0 * 4 * std::min(H, W);
-      const T** V_ptrs = ptrs_gpu + 1 * 4 * std::min(H, W);
+      const T** U_ptrs   = ptrs_gpu + 1 * 4 * std::min(H, W);
       T** Zx_ptrs = const_cast<T**>(ptrs_gpu) + 2 * 4 * std::min(H, W);
       CHECK_CUBLAS_CALL(
           gemm_gpu_batched<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
-                              1.0, dQx_ptrs, 5 * D, V_ptrs, 5 * D,
+                              1.0, dQx_ptrs, 5 * D, U_ptrs, 5 * D,
                               1.0, Zx_ptrs, D, batch_mul_size_x));
       // [A,Gi,Go,Gx,Gy](x,y) += O(x,y-1) * [U_a,U_i,U_o,U_x,U_y]
       const T** dQy_ptrs = ptrs_gpu + (3 + 0) * 4 * std::min(H, W);
-      const T** U_ptrs = ptrs_gpu + (3 + 1) * 4 * std::min(H, W);
+      const T** V_ptrs   = ptrs_gpu + (3 + 1) * 4 * std::min(H, W);
       T** Zy_ptrs = const_cast<T**>(ptrs_gpu + (3 + 2) * 4 * std::min(H, W));
       CHECK_CUBLAS_CALL(
           gemm_gpu_batched<T>(handle, CUBLAS_OP_N, CUBLAS_OP_T, N, D, 5 * D,
-                              1.0, dQy_ptrs, 5 * D, U_ptrs, 5 * D,
+                              1.0, dQy_ptrs, 5 * D, V_ptrs, 5 * D,
                               1.0, Zy_ptrs, D, batch_mul_size_y));
 
       kernel_bw_elemwise_ops<T, FG, FI, FO>
@@ -480,30 +474,17 @@ inline void bw_workspace(
     }
   }
 
-  CHECK_CUBLAS_CALL(cublasDestroy(handle));
-  CHECK_CUDA_CALL(cudaFreeHost(ptrs_cpu));
-}
-
-template <typename T>
-inline void bw_input(
-    const int H, const int W, const int N, const int K, const int D,
-    const T* P, const T scale, T* dI, void *wspace, void* rspace) {
-  CHECK_NOTNULL(P);
-  CHECK_NOTNULL(dI);
-  CHECK_NOTNULL(wspace);
-  CHECK_NOTNULL(rspace);
-  cublasHandle_t handle;
-  CHECK_CUBLAS_CALL(cublasCreate(&handle));
-  T* Q = reinterpret_cast<T*>(rspace);
   // Compute dJ/dI(y,x)
   for (int z = 0; z < 4; ++z) {
     CHECK_CUBLAS_CALL(gemm_gpu<T>(
         handle, CUBLAS_OP_N, CUBLAS_OP_T, H * W * N, K, 5 * D,
-        scale, Q_ptr(z, 0, 0, 0, 0, 0), 5 * D,
-        W_ptr(z, 0, 0, 0), 5 * D,
+        1.0, Q_ptr(z, 0, 0, 0, 0, 0), 5 * D,
+        W_ptr(P, z, 0, 0, 0), 5 * D,
         1.0, dI, K));
   }
+
   CHECK_CUBLAS_CALL(cublasDestroy(handle));
+  CHECK_CUDA_CALL(cudaFreeHost(ptrs_cpu));
 }
 
 template <typename T>
@@ -533,7 +514,7 @@ inline void bw_param(
     CHECK_CUBLAS_CALL(gemv_gpu<T>(
         handle, CUBLAS_OP_T, H * W * N, 5 * D,
         scale, Q_ptr(z, 0, 0, 0, 0, 0), 5 * D, vOnes, 1,
-        1.0, dB_ptr(z, 0, 0), 1));
+        1.0, B_ptr(dP, z, 0, 0), 1));
   }
 
   // dJ/dW
@@ -542,7 +523,7 @@ inline void bw_param(
     CHECK_CUBLAS_CALL(gemm_gpu<T>(
         handle, CUBLAS_OP_T, CUBLAS_OP_N, K, 5 * D, H * W * N,
         scale, I, K, Q_ptr(z, 0, 0, 0, 0, 0), 5 * D,
-        1.0, dW_ptr(z, 0, 0, 0), 5 * D));
+        1.0, W_ptr(dP, z, 0, 0, 0), 5 * D));
   }
 
   // translate the output tensor in the x-dimension
@@ -564,7 +545,7 @@ inline void bw_param(
         handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, H * W * N,
         scale, Oxp + z * H * W * N * D, D,
         Q_ptr(z, 0, 0, 0, 0, 0), 5 * D,
-        1.0, dV_ptr(z, 0, 0, 0), 5 * D));
+        1.0, U_ptr(dP, z, 0, 0, 0), 5 * D));
   }
 
   // dJ/dRy
@@ -574,7 +555,7 @@ inline void bw_param(
         handle, CUBLAS_OP_T, CUBLAS_OP_N, D, 5 * D, H * W * N,
         scale, Oyp + z * H * W * N * D, D,
         Q_ptr(z, 0, 0, 0, 0, 0), 5 * D,
-        1.0, dU_ptr(z, 0, 0, 0), 5 * D));
+        1.0, V_ptr(dP, z, 0, 0, 0), 5 * D));
   }
 
   STREAMS_SYNCHRONIZE(4 * 4);

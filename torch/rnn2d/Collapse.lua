@@ -8,6 +8,8 @@ function Collapse:__init(op, dimension, narrow)
   assert(self.op == 'sum' or self.op == 'mean',
 	 ('Collapse operation %q is not implemented!'):format(op))
   assert(self.dimension ~= nil)
+  self.output = torch.Tensor():type(self:type())
+  self.gradInput = torch.Tensor():type(self:type())
 end
 
 function Collapse:updateOutput(input)
@@ -16,7 +18,6 @@ function Collapse:updateOutput(input)
   local n = input:size(dim) / len
   assert(math.floor(n) == n, ('Input dimension %d is not divisible by %d!'):format(dim, len))
   -- Initialize output to zeros
-  self.output = self.output or input.new()
   self.output = self.output:resizeAs(input:narrow(dim, 1, len)):zero()
   -- Compute output
   for i=1,n do
@@ -37,7 +38,6 @@ function Collapse:updateGradInput(input, gradOutput)
   local n = input:size(dim) / len
   assert(math.floor(n) == n, ('Input dimension %d is not divisible by %d!'):format(dim, len))
   -- Initialize gradInput to zeros
-  self.gradInput = self.gradInput or input.new()
   self.gradInput = self.gradInput:resizeAs(input):zero()
   -- Compute gradInput
   for i=1,n do

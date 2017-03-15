@@ -1,0 +1,7 @@
+The demos should match the reference implementations in ../../ref_impl.
+
+The tiny demo should match "exactly", the word demo may be different but
+at the end should be able to predic the correct words.
+
+You will need to have Baidu's WarpCTC and their torch bindings installed
+in order to run the demos.
