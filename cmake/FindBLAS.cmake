@@ -167,14 +167,14 @@ endmacro()
 if( NOT BLAS_VENDORS )
   # If not specified, we will search through the list of known suppliers
   set( BLAS_VENDORS
+    MKL
     ATLAS
+    OPEN
     ACCELERATE
     ACML
     ESSL
     GOTO
-    OPEN
     SCSL
-    MKL
     SUNPERF
     VECLIB
     GENERIC)
