@@ -1,4 +1,4 @@
-#define STABLE_CELL
+// #define STABLE_CELL  // DO NOT use Stable Cell, but the traditional LSTM2D
 
 CudaNdarray * sumOverAllButLastDimensions(const CudaNdarray * A)
 {
@@ -269,12 +269,12 @@ __global__ void lstm_stable_cell_kernel_batched(float ** datas, const float ** o
     if (old_state_y)
     {
       //!!
-      state += 0.5 * fgtGate_y * old_state_y[start];
+      state += /* 0.5 **/ fgtGate_y * old_state_y[start];
     }
     if (old_state_x)
     {
       //!!
-      state += 0.5 * fgtGate_x * old_state_x[start];
+      state += /* 0.5 **/ fgtGate_x * old_state_x[start];
     }
     state *= valid_batch;
 
@@ -375,8 +375,8 @@ __global__ void lstm_bwd_stable_cell_kernel_batched(float ** deltas, const float
     //epsilon_c = min(epsilon_c, 10.f);
 
     //!!
-    epsilon_y[inner_idx] = 0.5 * epsilon_c * fgtGate_y;
-		epsilon_x[inner_idx] = 0.5 * epsilon_c * fgtGate_x;
+    epsilon_y[inner_idx] = /* 0.5 **/ epsilon_c * fgtGate_y;
+    epsilon_x[inner_idx] = /* 0.5 **/ epsilon_c * fgtGate_x;
 
     //delta_cell
     delta[start + 4 * n_cells] = inpGate * (1.f - (gzc * gzc)) * epsilon_c * valid_batch;
