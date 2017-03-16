@@ -148,7 +148,7 @@ function LSTM:updateOutput(input)
   assert(self.inputSize == K, 'Incorrect input size!')
   -- TODO(jpuigcerver): Use specialized functions for inference which require
   -- less computation and/or space
-  self.output = self.output:resize(H, W, N, 4 * D)
+  self.output = self.output:resize(H, W, N, 4 * D):zero()
   -- Get workspace to do the forward pass
   local wsPtr = self:getWorkspacePtr(H, W, N, D)
   if self.train then
@@ -156,11 +156,10 @@ function LSTM:updateOutput(input)
     local rss = LSTM.reserve_size[self:type()]
     assert(rss ~= nil, ('Unknown size for type %q'):format(self:type()))
     rss = math.ceil(tonumber(rss(H, W, N, D)) / self.reserve:elementSize())
-    self.reserve:resize(rss)
+    self.reserve:resize(rss):zero()
     -- Do the forward pass for training
     local fw = LSTM.fw_training[self:type()]
     assert(fw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
-    self.gradInput = self.gradInput:resizeAs(input):zero()
     fw(H, W, N, K, D, input:data(), nil, self.weight:data(), self.output:data(),
        wsPtr, self.reserve:data())
   else
@@ -191,6 +190,7 @@ function LSTM:updateGradInput(input, gradOutput)
   -- Do backward pass through the LSTM cells and gates
   local bw = LSTM.bw_data[self:type()]
   assert(bw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
+  self.gradInput = self.gradInput:resizeAs(input):zero()
   bw(H, W, N, K, D, input:data(), nil, self.weight:data(), self.output:data(),
      gradOutput:data(), self.gradInput:data(), wsPtr, self.reserve:data())
   return self.gradInput

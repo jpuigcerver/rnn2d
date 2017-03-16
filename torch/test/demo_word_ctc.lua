@@ -30,8 +30,8 @@ end
 -- Load input images!
 local img1 = image.load('../../assets/labour.png')   -- 1 x H x W
 local img2 = image.load('../../assets/tomorrow.png') -- 1 x H x W
-img1 = image.scale(img1, img1:size(3) / 16, img1:size(2) / 16)
-img2 = image.scale(img2, img2:size(3) / 16, img2:size(2) / 16)
+img1 = image.scale(img1, img1:size(3) / 8, img1:size(2) / 8)
+img2 = image.scale(img2, img2:size(3) / 8, img2:size(2) / 8)
 
 -- Prepare ground-truth
 local labels = {'a', 'b', 'l', 'm', 'o', 'r', 't', 'u', 'w'}
@@ -82,7 +82,7 @@ for i=1,10000 do
 
   model:zeroGradParameters()
   model:backward(img, gy)
-  param:add(-0.0003, gradParam)
+  param:add(-0.0005, gradParam)
   if (i - 1) % 200 == 0 or i == 10000 then
     print(string.format('ITER = %04d %9.5f %9.5f %9.5f %9.5f %9.5f %9.5f %8d',
 			i - 1, y:sum(), y:mean(), y:std(), y:min(), y:max(),

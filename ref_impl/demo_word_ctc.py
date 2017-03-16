@@ -38,7 +38,7 @@ for i, img in enumerate(img_list):
 
 model = Collapse(Model(1, [10, 10], collapse_type=['concat', 'sum']), collapse_type='sum')
 loss  = Loss(model)
-sgd   = SGD(loss, lr=0.0003)
+sgd   = SGD(loss, lr=0.0005)
 
 # Round parameters for an easier visualization
 for p in model.parameters:

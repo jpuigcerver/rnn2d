@@ -106,7 +106,7 @@ void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
       const T f_a   = FI::f(*Q_ptr(z, y, x, n, 4, d));  // pre-cell
       const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 4, d) : 0;
       const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 4, d) : 0;
-      const T C_00 = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;  // state
+      const T C_00 = f_gi * f_a + 0.5 * f_gfy * C_10 + 0.5 * f_gfx * C_01;  // state
       const T O_00 = f_go * FO::f(C_00);                        // output
       *Q_ptr(z, y, x, n, 0, d) = f_gi;
       *Q_ptr(z, y, x, n, 1, d) = f_gfy;
@@ -248,6 +248,7 @@ inline void fw_training(
         gemm_gpu_batched<T>(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, 5 * D, D,
                             1.0, Oy_ptrs, 4 * D, V_ptrs, 5 * D,
                             1.0, Qy_ptrs, 5 * D, batch_mul_size_y));
+
     // Compute cell states
     kernel_fw_elemwise_ops<T, FG, FI, FO>
         <<<GRID_SIZE, BLOCK_SIZE>>>(H, W, N, D, t, Tn, Tmin, S, Q, O);
@@ -290,7 +291,7 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
       const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 4, d) : 0;
       const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 4, d) : 0;
       const T fA_00 = fGi_00 != 0.0 ?
-          (C_00 - C_10 * fGy_00 - C_01 * fGx_00) / fGi_00 : 0.0;
+          (C_00 - 0.5 * C_10 * fGy_00 - 0.5 * C_01 * fGx_00) / fGi_00 : 0.0;
       // Z_10 = dC(y+1, x) * f(Gy(y+1, x))
       const T Z_10  = (yn >= 0 && yn < H) ? *Z_ptr(1, z, yn, x, n, d) : 0;
       // Z_01 = dC(y, x+1) * f(Gx(y, x+1))
@@ -301,8 +302,8 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
       *dGx_00 = (xp >= 0 && xp < W) ? dC_00 * C_01 * FG::df2(fGx_00) : 0;
       *dGi_00 = dC_00 * fA_00 * FG::df2(fGi_00);
       *dA_00  = dC_00 * FI::df2(fA_00) * fGi_00;
-      *Z_ptr(1, z, y, x, n, d) = dC_00 * fGy_00;
-      *Z_ptr(2, z, y, x, n, d) = dC_00 * fGx_00;
+      *Z_ptr(1, z, y, x, n, d) = 0.5 * dC_00 * fGy_00;
+      *Z_ptr(2, z, y, x, n, d) = 0.5 * dC_00 * fGx_00;
     } else {
       *dA_00  = 0;
       *dGi_00 = 0;
@@ -484,7 +485,6 @@ inline void bw_data(
         W_ptr(P, z, 0, 0, 0), 5 * D,
         1.0, dI, K));
   }
-
   CHECK_CUBLAS_CALL(cublasDestroy(handle));
   CHECK_CUDA_CALL(cudaFreeHost(ptrs_cpu));
 }

@@ -88,7 +88,7 @@ inline void fw_elemwise_ops(
             const T f_a   = FI::f(*Q_ptr(z, y, x, n, 4, d));  // pre-cell
             const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 4, d) : 0;
             const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 4, d) : 0;
-            const T C_00 = f_gi * f_a + f_gfy * C_10 + f_gfx * C_01;  // state
+            const T C_00 = f_gi * f_a + 0.5 * f_gfy * C_10 + 0.5 * f_gfx * C_01;  // state
             const T O_00 = f_go * FO::f(C_00);                        // output
             *Q_ptr(z, y, x, n, 0, d) = f_gi;
             *Q_ptr(z, y, x, n, 1, d) = f_gfy;
@@ -256,7 +256,7 @@ inline void bw_elemwise_ops(
             const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 4, d) : 0;
             const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 4, d) : 0;
             const T fA_00 = fGi_00 != 0.0 ?
-                (C_00 - C_10 * fGy_00 - C_01 * fGx_00) / fGi_00 : 0.0;
+                (C_00 - 0.5 * C_10 * fGy_00 - 0.5 * C_01 * fGx_00) / fGi_00 : 0.0;
             // Z_10 = dC(y+1, x) * f(Gy(y+1, x))
             const T Z_10  = (yn >= 0 && yn < H) ? *Z_ptr(1, z, yn, x, n, d) : 0;
             // Z_01 = dC(y, x+1) * f(Gx(y, x+1))
@@ -267,8 +267,8 @@ inline void bw_elemwise_ops(
             *dGx_00 = (xp >= 0 && xp < W) ? dC_00 * C_01 * FG::df2(fGx_00) : 0;
             *dGi_00 = dC_00 * fA_00 * FG::df2(fGi_00);
             *dA_00  = dC_00 * FI::df2(fA_00) * fGi_00;
-            *Z_ptr(1, z, y, x, n, d) = dC_00 * fGy_00;
-            *Z_ptr(2, z, y, x, n, d) = dC_00 * fGx_00;
+            *Z_ptr(1, z, y, x, n, d) = 0.5 * dC_00 * fGy_00;
+            *Z_ptr(2, z, y, x, n, d) = 0.5 * dC_00 * fGx_00;
           } else {
             *dA_00  = 0;
             *dGi_00 = 0;

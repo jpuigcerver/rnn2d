@@ -21,7 +21,7 @@ typedef ::testing::Types <
 TYPED_TEST_CASE(LstmTest, Implementations);
 
 
-TYPED_TEST(LstmTest, ForwardInference) {
+TYPED_TEST(LstmTest, DISABLED_ForwardInference) {
   typedef typename TypeParam::Type Type;
   this->AllocateInference();
   ASSERT_TRUE(this->Input() != nullptr);
@@ -53,7 +53,7 @@ TYPED_TEST(LstmTest, ForwardInference) {
 }
 
 
-TYPED_TEST(LstmTest, ForwardTraining) {
+TYPED_TEST(LstmTest, DISABLED_ForwardTraining) {
   typedef typename TypeParam::Type Type;
   this->AllocateTraining();
   this->DoForwardTraining();
