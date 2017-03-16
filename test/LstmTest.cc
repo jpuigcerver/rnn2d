@@ -1,4 +1,8 @@
-#include "LstmTestCPU.h"
+#include <gtest/gtest-message.h>        // for Message
+#include <gtest/gtest-typed-test.h>     // for TYPED_TEST, etc
+#include <gtest/gtest.h>                // for ASSERT_TRUE, EXPECT_LT, etc
+#include "LstmTest.h"                   // for LstmTest
+#include "LstmTestCPU.h"                // for LstmTest<>::LstmTest, etc
 
 #ifdef WITH_CUDA
 #include "LstmTestGPU.h"

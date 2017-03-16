@@ -1,9 +1,13 @@
 #ifndef TEST_LSTM_TEST_H_
 #define TEST_LSTM_TEST_H_
 
+#include <algorithm>
+#include <cmath>
+#include <memory>
+
 #include <gtest/gtest.h>
 
-#include "LstmAllocator.h"
+template <typename T> class LstmAllocator;
 
 namespace device {
 struct CPU {};
