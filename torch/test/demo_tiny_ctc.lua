@@ -21,12 +21,13 @@ img:sub(2, 2,
 	1, img2:size(1),
 	1, img2:size(2),
 	1, img2:size(3)):copy(1.0 - img2)
-img = img:permute(3, 4, 1, 2):contiguous()
+--img = img:permute(3, 4, 1, 2):contiguous()
 
 local model = nn.Sequential()
-model:add(rnn2d.LSTM(K, D))
-model:add(rnn2d.Collapse('sum', 4, D))
-model:add(nn.Sum(1))
+model:add(rnn2d.LSTM(K, D))             -- output shape: N x (4 * D) x H x W
+model:add(rnn2d.Collapse('sum', 2, D))  -- output shape: N x D x H x W
+model:add(nn.Sum(3))                    -- output shape: N x D x W
+model:add(nn.Transpose({1, 2}, {1, 3})) -- output shape: W x N x D
 model:add(nn.View(-1, D))
 
 model:get(1).weight = torch.DoubleTensor({

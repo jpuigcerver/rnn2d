@@ -71,11 +71,25 @@ if rnn2d.gpu ~= nil then
 end
 
 
-function LSTM:__init(inputSize, hiddenSize, batchFirst)
+local sharedBuffer = {}
+local function getSharedBufferForStream(device, stream, name, ttype)
+  device = device or cutorch.getDevice()
+  stream = stream or cutorch.getStream() -- starts from 0
+  if not sharedBuffer[device] then sharedBuffer[device] = {} end
+  if not sharedBuffer[device][stream] then sharedBuffer[device][stream] = {} end
+  local buf = sharedBuffer[device][stream][name]
+  if not buf then
+    buf = torch.Tensor()
+  end
+  sharedBuffer[device][stream][name] = buf:type(ttype)
+  return sharedBuffer[device][stream][name]
+end
+
+
+function LSTM:__init(inputSize, hiddenSize)
    parent.__init(self)
    assert(inputSize ~= nil)
    assert(hiddenSize ~= nil)
-   batchFirst = batchFirst or false
 
    self.inputSize = inputSize
    self.hiddenSize = hiddenSize
@@ -121,34 +135,30 @@ function LSTM:getWorkspacePtr(H, W, N, D)
   else wss = LSTM.workspace_inference_size[self:type()] end
   assert(wss ~= nil, ('Unknown size for type %q'):format(self:type()))
   workspaceSize = tonumber(wss(H, W, N, D))
-  if self.batchFirst then
-    -- Size (in bytes) of each element (4 = float, 8, double)
-    local elSize = self.weight:storage():elementSize()
-    if self.train then
-      workspaceSize = workspaceSize +
-      H * W * N * D * elSize      +  -- extra space for the input
-      H * W * N * 4 * D * elSize  +  -- extra space for the output
-      H * W * N * D * elSize      +  -- extra space for the gradInput
-      H * W * N * 4 * D * elSize     -- extra space for the gradOutput
-    else
-      workspaceSize = workspaceSize +
-      H * W * N * D * elSize      +  -- extra space for the input
-      H * W * N * 4 * D * elSize     -- extra space for the output
-    end
-  end
   rnn2d.setSharedWorkspaceSize(workspaceSize, true, device, stream)
   return rnn2d.getSharedWorkspace(device, stream)
 end
 
 function LSTM:updateOutput(input)
   assert(input:isContiguous())
-  assert(input:dim() == 4, 'Input must have 4 dimensions: H x W x N x D')
-  local H, W, N, K = input:size(1), input:size(2), input:size(3), input:size(4)
+  assert(input:dim() == 4, 'Input must have 4 dimensions: N x C x H x W')
+  local N, K, H, W = input:size(1), input:size(2), input:size(3), input:size(4)
   local D = self.hiddenSize
   assert(self.inputSize == K, 'Incorrect input size!')
-  -- TODO(jpuigcerver): Use specialized functions for inference which require
-  -- less computation and/or space
-  self.output = self.output:resize(H, W, N, 4 * D):zero()
+
+  -- In which device and stream are we running? Use -1, 0 for CPU.
+  local device, stream = -1, 0
+  if self:type():find('torch.Cuda') ~= nil then
+    device = cutorch.getDevice()
+    stream = cutorch.getStream()
+  end
+  -- Make a copy of the input with the appropriate layout.
+  local inputShared = getSharedBufferForStream(device, stream, 'input', self:type())
+  inputShared:resize(H, W, N, K):copy(input:permute(3, 4, 1, 2))
+  -- Get shared output buffer.
+  local outputShared = getSharedBufferForStream(device, stream, 'output', self:type())
+  outputShared:resize(H, W, N, 4 * D):zero()
+
   -- Get workspace to do the forward pass
   local wsPtr = self:getWorkspacePtr(H, W, N, D)
   if self.train then
@@ -160,39 +170,61 @@ function LSTM:updateOutput(input)
     -- Do the forward pass for training
     local fw = LSTM.fw_training[self:type()]
     assert(fw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
-    fw(H, W, N, K, D, input:data(), nil, self.weight:data(), self.output:data(),
+    fw(H, W, N, K, D, inputShared:data(), nil, self.weight:data(), outputShared:data(),
        wsPtr, self.reserve:data())
   else
     -- Do the forward pass for inference
     local fw = LSTM.fw_inference[self:type()]
     assert(fw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
-    fw(H, W, N, K, D, input:data(), nil, self.weight:data(), self.output:data(),
+    fw(H, W, N, K, D, inputShared:data(), nil, self.weight:data(), outputShared:data(),
        wsPtr)
   end
+  -- Convert the output buffer to (N x (4 * D) x H x W)
+  self.output = outputShared:permute(3, 4, 1, 2):clone()
   return self.output
 end
 
 function LSTM:updateGradInput(input, gradOutput)
   assert(self.train)
   assert(input:isContiguous())
-  assert(input:dim() == 4, 'Input must have 4 dimensions: H x W x N x D')
-  if batchFirst then
-  end
-
-  local H, W, N, K = input:size(1), input:size(2), input:size(3), input:size(4)
+  assert(input:dim() == 4, 'Input must have 4 dimensions: N x K x H x W')
+  local N, K, H, W = input:size(1), input:size(2), input:size(3), input:size(4)
   local D = self.hiddenSize
   assert(self.inputSize == K, 'Incorrect input size!')
   assert(gradOutput:isContiguous())
   assert(gradOutput:isSameSizeAs(self.output),
 	 'output and gradOutput sizes differ')
+
+  -- In which device and stream are we running? Use -1, 0 for CPU.
+  local device, stream = -1, 0
+  if self:type():find('torch.Cuda') ~= nil then
+    device = cutorch.getDevice()
+    stream = cutorch.getStream()
+  end
+  -- Make a copy of the input with the appropriate layout.
+  local inputShared = getSharedBufferForStream(device, stream, 'input', self:type())
+  inputShared:resize(H, W, N, K):copy(input:permute(3, 4, 1, 2))
+  -- Make a copy of the output with the appropriate layout.
+  local outputShared = getSharedBufferForStream(device, stream, 'output', self:type())
+  outputShared:resize(H, W, N, 4 * D):copy(self.output:permute(3, 4, 1, 2))
+  -- Make a copy of the gradOutput with the appropriate layout.
+  local gradOutputShared = getSharedBufferForStream(device, stream, 'gradOutput', self:type())
+  gradOutputShared:resize(H, W, N, 4 * D):copy(gradOutput:permute(3, 4, 1, 2))
+  -- Get shared gradInput buffer.
+  local gradInputShared = getSharedBufferForStream(device, stream, 'gradInput', self:type())
+  gradInputShared:resize(H, W, N, K):zero()
+
   -- Get workspace to do the backward pass
   local wsPtr = self:getWorkspacePtr(H, W, N, D)
   -- Do backward pass through the LSTM cells and gates
   local bw = LSTM.bw_data[self:type()]
   assert(bw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
-  self.gradInput = self.gradInput:resizeAs(input):zero()
-  bw(H, W, N, K, D, input:data(), nil, self.weight:data(), self.output:data(),
-     gradOutput:data(), self.gradInput:data(), wsPtr, self.reserve:data())
+  bw(H, W, N, K, D, inputShared:data(), nil, self.weight:data(),
+     outputShared:data(), gradOutputShared:data(), gradInputShared:data(),
+     wsPtr, self.reserve:data())
+
+  -- Convert the gradInput buffer to (N x K x H x W)
+  self.gradInput = gradInputShared:permute(3, 4, 1, 2):clone()
   return self.gradInput
 end
 
@@ -200,16 +232,30 @@ function LSTM:accGradParameters(input, gradOutput, scale)
   scale = scale or 1
   assert(self.train)
   assert(input:isContiguous())
-  assert(input:dim() == 4, 'Input must have 4 dimensions: H x W x N x D')
-  local H, W, N, K = input:size(1), input:size(2), input:size(3), input:size(4)
+  assert(input:dim() == 4, 'Input must have 4 dimensions: N x K x H x W')
+  local N, K, H, W = input:size(1), input:size(2), input:size(3), input:size(4)
   local D = self.hiddenSize
   assert(self.inputSize == K, 'Incorrect input size!')
+
+  -- In which device and stream are we running? Use -1, 0 for CPU.
+  local device, stream = -1, 0
+  if self:type():find('torch.Cuda') ~= nil then
+    device = cutorch.getDevice()
+    stream = cutorch.getStream()
+  end
+  -- Get the shared input buffer.
+  local inputShared = getSharedBufferForStream(device, stream, 'input', self:type())
+  -- Get the shared output buffer.
+  local outputShared = getSharedBufferForStream(device, stream, 'output', self:type())
+  -- Note: we do not need to copy again the data, since updateGradInput is
+  -- always called before accGradParameters.
+
   -- Get workspace to do the backward pass
   local wsPtr = self:getWorkspacePtr(H, W, N, D)
   -- Do the backward pass through the LSTM parameters
   local bw = LSTM.bw_param[self:type()]
   assert(bw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
-  bw(H, W, N, K, D, input:data(), self.output:data(), scale,
+  bw(H, W, N, K, D, inputShared:data(), outputShared:data(), scale,
      self.gradWeight:data(), wsPtr, self.reserve:data())
 end
 

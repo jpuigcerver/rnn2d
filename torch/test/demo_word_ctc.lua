@@ -54,13 +54,14 @@ img:sub(2, 2,
 	1, img2:size(1),
 	1, img2:size(2),
 	1, img2:size(3)):copy(1.0 - img2)
-img = img:permute(3, 4, 1, 2):contiguous()
+--img = img:permute(3, 4, 1, 2):contiguous()
 
 local model = nn.Sequential()
-model:add(rnn2d.LSTM(K     , 10))
-model:add(rnn2d.LSTM(10 * 4, 10))
-model:add(rnn2d.Collapse('sum', 4, 10))
-model:add(nn.Sum(1))
+model:add(rnn2d.LSTM(K     , 10))       -- output shape: N x (4 * D) x H x W
+model:add(rnn2d.LSTM(10 * 4, 10))       -- output shape: N x (4 * D) x H x W
+model:add(rnn2d.Collapse('sum', 2, 10)) -- output shape: N x D x H x W
+model:add(nn.Sum(3))                    -- output shape: N x D x W
+model:add(nn.Transpose({1, 2}, {1, 3})) -- output shape: W x N x D
 model:add(nn.View(-1, 10))
 
 -- Choose the appropiate backend
