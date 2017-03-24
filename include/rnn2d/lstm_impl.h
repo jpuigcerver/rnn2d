@@ -74,7 +74,8 @@
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const int* shape, const TYPE* param,           \
       TYPE* output, void* workspace) {                                  \
-    DEVICE::fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >( \
+    DEVICE::fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE>,   \
+                         false >(                                       \
         H, W, N, K, D, input, shape, param, output,                     \
         workspace, nullptr);                                            \
   }                                                                     \
@@ -83,7 +84,8 @@
       const int H, const int W, const int N, const int K, const int D,  \
       const TYPE* input, const int* shape, const TYPE* param,           \
       TYPE* output, void* workspace, void* reserve) {                   \
-    DEVICE::fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >( \
+    DEVICE::fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE>,   \
+                         false >(                                       \
         H, W, N, K, D, input, shape, param, output,                     \
         workspace, reserve);                                            \
   }                                                                     \
@@ -93,7 +95,8 @@
       const TYPE* input, const int* shape, const TYPE* param,           \
       const TYPE* output, const TYPE* dOutput, TYPE* dInput,            \
       void* workspace, void* reserve) {                                 \
-    DEVICE::bw_data< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE> >(   \
+    DEVICE::bw_data< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE>,       \
+                     false >(                                           \
         H, W, N, K, D, input, shape, param, output, dOutput, dInput,    \
         workspace, reserve);                                            \
   }                                                                     \
@@ -118,7 +121,38 @@
                                                                         \
   size_t rnn2d_lstm_ ## DEVICE ## _ ## TYPE ## _training_reserve_size(  \
       const int H, const int W, const int N, const int D) {             \
-    return DEVICE::get_training_reserve_size<TYPE>(H, W, N, D);       \
-  }
+    return DEVICE::get_training_reserve_size<TYPE>(H, W, N, D);         \
+  }                                                                     \
+                                                                        \
+  void rnn2d_stable_lstm_ ## DEVICE ## _ ## TYPE ## _fw_inference(      \
+      const int H, const int W, const int N, const int K, const int D,  \
+      const TYPE* input, const int* shape, const TYPE* param,           \
+      TYPE* output, void* workspace) {                                  \
+    DEVICE::fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE>,   \
+                         true >(                                        \
+        H, W, N, K, D, input, shape, param, output,                     \
+        workspace, nullptr);                                            \
+  }                                                                     \
+                                                                        \
+  void rnn2d_stable_lstm_ ## DEVICE ## _ ## TYPE ## _fw_training(       \
+      const int H, const int W, const int N, const int K, const int D,  \
+      const TYPE* input, const int* shape, const TYPE* param,           \
+      TYPE* output, void* workspace, void* reserve) {                   \
+    DEVICE::fw_training< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE>,   \
+                         true >(                                        \
+        H, W, N, K, D, input, shape, param, output,                     \
+        workspace, reserve);                                            \
+  }                                                                     \
+                                                                        \
+  void rnn2d_stable_lstm_ ## DEVICE ## _ ## TYPE ## _bw_data(           \
+      const int H, const int W, const int N, const int K, const int D,  \
+      const TYPE* input, const int* shape, const TYPE* param,           \
+      const TYPE* output, const TYPE* dOutput, TYPE* dInput,            \
+      void* workspace, void* reserve) {                                 \
+    DEVICE::bw_data< TYPE, Sigmoid<TYPE>, Tanh<TYPE>, Tanh<TYPE>,       \
+                     true >(                                            \
+        H, W, N, K, D, input, shape, param, output, dOutput, dInput,    \
+        workspace, reserve);                                            \
+  }                                                                     \
 
 #endif  // RNN2D_LSTM_IMPL_H_

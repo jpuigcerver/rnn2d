@@ -24,7 +24,7 @@ img:sub(2, 2,
 img = img:permute(3, 4, 1, 2):contiguous()
 
 local model = nn.Sequential()
-model:add(rnn2d.LSTM(K, D))
+model:add(rnn2d.LSTM(K, D, false))  -- Regular LSTM-2D Cells
 model:add(rnn2d.Collapse('sum', 4, D))
 model:add(nn.Sum(1))
 model:add(nn.View(-1, D))

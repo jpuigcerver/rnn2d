@@ -7,6 +7,9 @@ LSTM.fw_inference = { }
 LSTM.fw_training = { }
 LSTM.bw_data = { }
 LSTM.bw_param = { }
+LSTM.fw_stable_inference = { }
+LSTM.fw_stable_training = { }
+LSTM.bw_stable_data = { }
 
 if rnn2d.cpu ~= nil then
   LSTM.workspace_inference_size['torch.FloatTensor']      =
@@ -37,6 +40,19 @@ if rnn2d.cpu ~= nil then
     rnn2d.cpu.rnn2d_lstm_cpu_float_bw_param
   LSTM.bw_param['torch.DoubleTensor']     =
     rnn2d.cpu.rnn2d_lstm_cpu_double_bw_param
+  --
+  LSTM.fw_stable_inference['torch.FloatTensor']    =
+    rnn2d.cpu.rnn2d_stable_lstm_cpu_float_fw_inference
+  LSTM.fw_stable_inference['torch.DoubleTensor']    =
+    rnn2d.cpu.rnn2d_stable_lstm_cpu_double_fw_inference
+  LSTM.fw_stable_training['torch.FloatTensor']      =
+    rnn2d.cpu.rnn2d_stable_lstm_cpu_float_fw_training
+  LSTM.fw_stable_training['torch.DoubleTensor']     =
+    rnn2d.cpu.rnn2d_stable_lstm_cpu_double_fw_training
+  LSTM.bw_stable_data['torch.FloatTensor']      =
+    rnn2d.cpu.rnn2d_stable_lstm_cpu_float_bw_data
+  LSTM.bw_stable_data['torch.DoubleTensor']     =
+    rnn2d.cpu.rnn2d_stable_lstm_cpu_double_bw_data
 end
 
 if rnn2d.gpu ~= nil then
@@ -68,15 +84,28 @@ if rnn2d.gpu ~= nil then
     rnn2d.gpu.rnn2d_lstm_gpu_float_bw_param
   LSTM.bw_param['torch.CudaDoubleTensor'] =
     rnn2d.gpu.rnn2d_lstm_gpu_double_bw_param
+  --
+  LSTM.fw_stable_inference['torch.CudaTensor']       =
+    rnn2d.gpu.rnn2d_stable_lstm_gpu_float_fw_inference
+  LSTM.fw_stable_inference['torch.CudaDoubleTensor'] =
+    rnn2d.gpu.rnn2d_stable_lstm_gpu_double_fw_inference
+  LSTM.fw_stable_training['torch.CudaTensor']        =
+    rnn2d.gpu.rnn2d_stable_lstm_gpu_float_fw_training
+  LSTM.fw_stable_training['torch.CudaDoubleTensor']  =
+    rnn2d.gpu.rnn2d_stable_lstm_gpu_double_fw_training
+  LSTM.bw_stable_data['torch.CudaTensor']       =
+    rnn2d.gpu.rnn2d_stable_lstm_gpu_float_bw_data
+  LSTM.bw_stable_data['torch.CudaDoubleTensor'] =
+    rnn2d.gpu.rnn2d_stable_lstm_gpu_double_bw_data
 end
 
 
-function LSTM:__init(inputSize, hiddenSize, batchFirst)
+function LSTM:__init(inputSize, hiddenSize, stableCell)
    parent.__init(self)
    assert(inputSize ~= nil)
    assert(hiddenSize ~= nil)
-   batchFirst = batchFirst or false
 
+   self.stableCell = stableCell or false
    self.inputSize = inputSize
    self.hiddenSize = hiddenSize
    self.numDirectionParameters =
@@ -121,21 +150,6 @@ function LSTM:getWorkspacePtr(H, W, N, D)
   else wss = LSTM.workspace_inference_size[self:type()] end
   assert(wss ~= nil, ('Unknown size for type %q'):format(self:type()))
   workspaceSize = tonumber(wss(H, W, N, D))
-  if self.batchFirst then
-    -- Size (in bytes) of each element (4 = float, 8, double)
-    local elSize = self.weight:storage():elementSize()
-    if self.train then
-      workspaceSize = workspaceSize +
-      H * W * N * D * elSize      +  -- extra space for the input
-      H * W * N * 4 * D * elSize  +  -- extra space for the output
-      H * W * N * D * elSize      +  -- extra space for the gradInput
-      H * W * N * 4 * D * elSize     -- extra space for the gradOutput
-    else
-      workspaceSize = workspaceSize +
-      H * W * N * D * elSize      +  -- extra space for the input
-      H * W * N * 4 * D * elSize     -- extra space for the output
-    end
-  end
   rnn2d.setSharedWorkspaceSize(workspaceSize, true, device, stream)
   return rnn2d.getSharedWorkspace(device, stream)
 end
@@ -159,12 +173,14 @@ function LSTM:updateOutput(input)
     self.reserve:resize(rss):zero()
     -- Do the forward pass for training
     local fw = LSTM.fw_training[self:type()]
+    if self.stableCell then fw = LSTM.fw_stable_training[self:type()] end
     assert(fw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
     fw(H, W, N, K, D, input:data(), nil, self.weight:data(), self.output:data(),
        wsPtr, self.reserve:data())
   else
     -- Do the forward pass for inference
     local fw = LSTM.fw_inference[self:type()]
+    if self.stableCell then fw = LSTM.fw_inference_training[self:type()] end
     assert(fw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
     fw(H, W, N, K, D, input:data(), nil, self.weight:data(), self.output:data(),
        wsPtr)
@@ -176,8 +192,6 @@ function LSTM:updateGradInput(input, gradOutput)
   assert(self.train)
   assert(input:isContiguous())
   assert(input:dim() == 4, 'Input must have 4 dimensions: H x W x N x D')
-  if batchFirst then
-  end
 
   local H, W, N, K = input:size(1), input:size(2), input:size(3), input:size(4)
   local D = self.hiddenSize
@@ -189,6 +203,7 @@ function LSTM:updateGradInput(input, gradOutput)
   local wsPtr = self:getWorkspacePtr(H, W, N, D)
   -- Do backward pass through the LSTM cells and gates
   local bw = LSTM.bw_data[self:type()]
+  if self.stableCell then bw = LSTM.bw_data[self:type()] end
   assert(bw ~= nil, ('Layer not implemented for type %q'):format(self:type()))
   self.gradInput = self.gradInput:resizeAs(input):zero()
   bw(H, W, N, K, D, input:data(), nil, self.weight:data(), self.output:data(),

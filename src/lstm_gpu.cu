@@ -82,7 +82,7 @@ void kernel_init_Q_with_bias(
   }
 }
 
-template <typename T, typename FG, typename FI, typename FO>
+template <typename T, typename FG, typename FI, typename FO, bool stable>
 __global__
 void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
                             const int t, const int Tn, const int Tmin,
@@ -99,19 +99,22 @@ void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
     if (S == nullptr || (y < S[n * 2] && x < S[n * 2 + 1])) {
       const int yp = (z == 0 || z == 2) ? y - 1 : y + 1;
       const int xp = (z == 0 || z == 1) ? x - 1 : x + 1;
-      const T f_gi  = FG::f(*Q_ptr(z, y, x, n, 0, d));  // input gate
-      const T f_gfy = FG::f(*Q_ptr(z, y, x, n, 1, d));  // fgt_y gate
-      const T f_gfx = FG::f(*Q_ptr(z, y, x, n, 2, d));  // fgt_x gate
-      const T f_go  = FG::f(*Q_ptr(z, y, x, n, 3, d));  // output gate
-      const T f_a   = FI::f(*Q_ptr(z, y, x, n, 4, d));  // pre-cell
+      const T fGi = FG::f(*Q_ptr(z, y, x, n, 0, d));  // input gate
+      const T fGy = FG::f(*Q_ptr(z, y, x, n, 1, d));  // fgt_y gate
+      const T fGx = FG::f(*Q_ptr(z, y, x, n, 2, d));  // fgt_x gate
+      const T fGo = FG::f(*Q_ptr(z, y, x, n, 3, d));  // output gate
+      const T fA  = FI::f(*Q_ptr(z, y, x, n, 4, d));  // pre-cell
       const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 4, d) : 0;
       const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 4, d) : 0;
-      const T C_00 = f_gi * f_a + 0.5 * f_gfy * C_10 + 0.5 * f_gfx * C_01;  // state
-      const T O_00 = f_go * FO::f(C_00);                        // output
-      *Q_ptr(z, y, x, n, 0, d) = f_gi;
-      *Q_ptr(z, y, x, n, 1, d) = f_gfy;
-      *Q_ptr(z, y, x, n, 2, d) = f_gfx;
-      *Q_ptr(z, y, x, n, 3, d) = f_go;
+      const T C_00 = fGi * fA + (
+          stable
+          ? (fGy * fGx * C_10 + fGy * (1.0 - fGx) * C_01) // stable state
+          : (0.5 * fGy * C_10 + 0.5 * fGx * C_01));       // regular state
+      const T O_00 = fGo * FO::f(C_00);                   // output
+      *Q_ptr(z, y, x, n, 0, d) = fGi;
+      *Q_ptr(z, y, x, n, 1, d) = fGy;
+      *Q_ptr(z, y, x, n, 2, d) = fGx;
+      *Q_ptr(z, y, x, n, 3, d) = fGo;
       *Q_ptr(z, y, x, n, 4, d) = C_00;
       *O_ptr(O, y, x, n, z, d) = O_00;
     } else {
@@ -137,7 +140,7 @@ void kernel_fw_elemwise_ops(const int H, const int W, const int N, const int D,
  * O -> output data (layout: H x W x N x 4 x D)
  * Q -> gates pre-activations and cells (layout: 4 x H x W x N x 5 x D)
  */
-template <typename T, typename FG, typename FI, typename FO>
+template <typename T, typename FG, typename FI, typename FO, bool stable>
 inline void fw_training(
     const int H, const int W, const int N, const int K, const int D,
     const T* I, const int* S, const T* P, T* O, void* wspace, void* rspace) {
@@ -250,7 +253,7 @@ inline void fw_training(
                             1.0, Qy_ptrs, 5 * D, batch_mul_size_y));
 
     // Compute cell states
-    kernel_fw_elemwise_ops<T, FG, FI, FO>
+    kernel_fw_elemwise_ops<T, FG, FI, FO, stable>
         <<<GRID_SIZE, BLOCK_SIZE>>>(H, W, N, D, t, Tn, Tmin, S, Q, O);
     CHECK_LAST_CUDA_CALL();
   }
@@ -258,7 +261,7 @@ inline void fw_training(
   CHECK_CUDA_CALL(cudaFreeHost(ptrs_cpu));
 }
 
-template <typename T, typename FG, typename FI, typename FO>
+template <typename T, typename FG, typename FI, typename FO, bool stable>
 __global__
 void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
                             const int t, const int Tn, const int Tmin,
@@ -282,28 +285,45 @@ void kernel_bw_elemwise_ops(const int H, const int W, const int N, const int D,
       const int xn = (z == 0 || z == 1) ? x + 1 : x - 1;  // next x
       const int yp = (z == 0 || z == 2) ? y - 1 : y + 1;  // previous y
       const int xp = (z == 0 || z == 1) ? x - 1 : x + 1;  // previous x
-      const T C_00   = *dA_00;
-      const T fGi_00 = *dGi_00;
-      const T fGo_00 = *dGo_00;
-      const T fGy_00 = *dGy_00;
-      const T fGx_00 = *dGx_00;
+      const T C_00 = *dA_00;
+      const T fGi = *dGi_00;
+      const T fGo = *dGo_00;
+      const T fGy = *dGy_00;
+      const T fGx = *dGx_00;
       const T dO_00  = *Z_ptr(0, z, y, x, n, d);
       const T C_10 = (yp >= 0 && yp < H) ? *Q_ptr(z, yp, x, n, 4, d) : 0;
       const T C_01 = (xp >= 0 && xp < W) ? *Q_ptr(z, y, xp, n, 4, d) : 0;
-      const T fA_00 = fGi_00 != 0.0 ?
-          (C_00 - 0.5 * C_10 * fGy_00 - 0.5 * C_01 * fGx_00) / fGi_00 : 0.0;
+      const T fA =
+          fGi != 0.0
+          ? (stable
+             // stable state
+             ? (C_00 - fGy * fGx * C_10 - fGy * (1.0 - fGx) * C_01) / fGi
+             // unstable state
+             : (C_00 - 0.5 * fGy * C_10 - 0.5 * fGx * C_01) / fGi)
+          : 0.0;
       // Z_10 = dC(y+1, x) * f(Gy(y+1, x))
       const T Z_10  = (yn >= 0 && yn < H) ? *Z_ptr(1, z, yn, x, n, d) : 0;
       // Z_01 = dC(y, x+1) * f(Gx(y, x+1))
       const T Z_01  = (xn >= 0 && xn < W) ? *Z_ptr(2, z, y, xn, n, d) : 0;
-      const T dC_00  = dO_00 * FO::df(C_00) * fGo_00 + Z_10 + Z_01;
-      *dGo_00 = dO_00 * FO::f(C_00) * FG::df2(fGo_00);
-      *dGy_00 = (yp >= 0 && yp < H) ? dC_00 * C_10 * FG::df2(fGy_00) : 0;
-      *dGx_00 = (xp >= 0 && xp < W) ? dC_00 * C_01 * FG::df2(fGx_00) : 0;
-      *dGi_00 = dC_00 * fA_00 * FG::df2(fGi_00);
-      *dA_00  = dC_00 * FI::df2(fA_00) * fGi_00;
-      *Z_ptr(1, z, y, x, n, d) = 0.5 * dC_00 * fGy_00;
-      *Z_ptr(2, z, y, x, n, d) = 0.5 * dC_00 * fGx_00;
+      const T dC_00  = dO_00 * FO::df(C_00) * fGo + Z_10 + Z_01;
+      *dGi_00 = dC_00 * fA * FG::df2(fGi);
+      *dGo_00 = dO_00 * FO::f(C_00) * FG::df2(fGo);
+      *dGy_00 = (yp >= 0 && yp < H)
+          ? (stable
+             ? (dC_00 * FG::df2(fGy) * (C_10 * (      fGx) +
+                                        C_01 * (1.0 - fGx)))
+             : (dC_00 * FG::df2(fGy) * C_10))
+          : 0;
+      *dGx_00 = (xp >= 0 && xp < W)
+          ? (stable
+             ? (dC_00 * fGy * FG::df2(fGx) * (C_10 - C_01))
+             : (dC_00 * FG::df2(fGx) * C_01))
+          : 0;
+      *dA_00  = dC_00 * FI::df2(fA) * fGi;
+      *Z_ptr(1, z, y, x, n, d) =
+          dC_00 * (stable ? (fGy * (      fGx)) : (0.5 * fGy));
+      *Z_ptr(2, z, y, x, n, d) =
+          dC_00 * (stable ? (fGy * (1.0 - fGx)) : (0.5 * fGx));
     } else {
       *dA_00  = 0;
       *dGi_00 = 0;
@@ -377,7 +397,7 @@ void kernel_copy_dO_to_Z(const int H, const int W, const int N, const int D,
  * dO -> derivative of the loss w.r.t the output
  * dQ -> derivative of the loss w.r.t the internal states
  */
-template <typename T, typename FG, typename FI, typename FO>
+template <typename T, typename FG, typename FI, typename FO, bool stable>
 inline void bw_data(
     const int H, const int W, const int N, const int K, const int D,
     const T* I, const int* S, const T* P, const T* O, const T* dO, T* dI,
@@ -472,7 +492,7 @@ inline void bw_data(
                               1.0, dQy_ptrs, 5 * D, V_ptrs, 5 * D,
                               1.0, Zy_ptrs, D, batch_mul_size_y));
 
-      kernel_bw_elemwise_ops<T, FG, FI, FO>
+      kernel_bw_elemwise_ops<T, FG, FI, FO, stable>
           <<<GRID_SIZE, BLOCK_SIZE>>>(H, W, N, D, t, Tn, Tmin, S, Q, Z);
     }
   }
