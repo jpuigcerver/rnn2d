@@ -35,3 +35,5 @@ build
 # NVIDIA Visual Profiler
 .cproject
 .project
+
+*.pyc

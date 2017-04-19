@@ -20,6 +20,10 @@ class Linear {
     return 1;
   }
   __host__ __device__
+  static inline T df2(const T& fx) {
+    return 1;
+  }
+  __host__ __device__
   static inline T df(const T& x, const T& fx) {
     return 1;
   }
@@ -35,6 +39,10 @@ class Sigmoid {
   __host__ __device__
   static inline T df(const T& x) {
     const T fx = f(x);
+    return (1 - fx) * fx;
+  }
+  __host__ __device__
+  static inline T df2(const T& fx) {
     return (1 - fx) * fx;
   }
   __host__ __device__
@@ -56,6 +64,10 @@ class Tanh {
     return 1 - fx * fx;
   }
   __host__ __device__
+  static inline T df2(const T& fx) {
+    return 1 - fx * fx;
+  }
+  __host__ __device__
   static inline T df(const T& x, const T& fx) {
     return 1 - fx * fx;
   }
@@ -71,6 +83,10 @@ class ReLU {
   __host__ __device__
   static inline T df(const T& x) {
     return (x > 0 ? 1 : 0);
+  }
+  __host__ __device__
+  static inline T df2(const T& fx) {
+    return (fx > 0 ? 1 : 0);
   }
   __host__ __device__
   static inline T df(const T& x, const T& fx) {

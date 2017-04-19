@@ -27,5 +27,7 @@ build = {
     CMAKE_BUILD_TYPE = "RELEASE",
     CMAKE_INSTALL_PREFIX = "$(PREFIX)",
     INST_LUADIR = "$(LUADIR)",
+    WITH_TESTS = "OFF",
+    WITH_BENCHMARKS = "OFF",
   }
 }

@@ -2,6 +2,7 @@
 #define RNN2D_LSTM_GPU_H_
 
 #include <rnn2d/lstm_common.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,15 +29,10 @@ void rnn2d_lstm_gpu_float_fw_training(
     const float* input, const int* shape, const float* param, float* output,
     void* workspace, void* reserve);
 
-void rnn2d_lstm_gpu_float_bw_workspace(
+void rnn2d_lstm_gpu_float_bw_data(
     const int H, const int W, const int N, const int K, const int D,
     const float* input, const int* shape, const float* param,
-    const float* output, const float* dOutput,
-    void* workspace, void* reserve);
-
-void rnn2d_lstm_gpu_float_bw_input(
-    const int H, const int W, const int N, const int K, const int D,
-    const float* param, const float scale, float* dInput,
+    const float* output, const float* dOutput, float* dInput,
     void* workspace, void* reserve);
 
 void rnn2d_lstm_gpu_float_bw_param(
@@ -65,15 +61,10 @@ void rnn2d_lstm_gpu_double_fw_training(
     const double* input, const int* shape, const double* param, double* output,
     void* workspace, void* reserve);
 
-void rnn2d_lstm_gpu_double_bw_workspace(
+void rnn2d_lstm_gpu_double_bw_data(
     const int H, const int W, const int N, const int K, const int D,
     const double* input, const int* shape, const double* param,
-    const double* output, const double* dOutput,
-    void* workspace, void* reserve);
-
-void rnn2d_lstm_gpu_double_bw_input(
-    const int H, const int W, const int N, const int K, const int D,
-    const double* param, const double scale, double* dInput,
+    const double* output, const double* dOutput, double* dInput,
     void* workspace, void* reserve);
 
 void rnn2d_lstm_gpu_double_bw_param(

@@ -52,11 +52,7 @@ class LstmWrapper {
     data_.resize(data_size);
     wrspace_.resize(wrspace_size);
     LOG(INFO) << "Filling " << data_size_mb << "MB with random numbers...";
-    curandGenerator_t gen;
-    CHECK_CURAND(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
-    CHECK_CURAND(curandSetPseudoRandomGeneratorSeed(gen, 1234ULL));
-    CHECK_CURAND(GenerateUniform(gen, data_.data().get(), data_size));
-    CHECK_CURAND(curandDestroyGenerator(gen));
+    GenerateUniform(data_.data().get(), data_size);
     LOG(INFO) << "Done!";
   }
 
@@ -69,8 +65,7 @@ class LstmWrapper {
 
   inline void ForwardInference();
   inline void ForwardTraining();
-  inline void BackwardGates();
-  inline void BackwardInput();
+  inline void BackwardData();
   inline void BackwardParam();
 
 
@@ -90,7 +85,7 @@ class LstmWrapper {
   static size_t GetInferenceWorkspaceSize(const int H, const int W, const int N, const int D);
   static size_t GetTrainingWorkspaceSize(const int H, const int W, const int N, const int D);
   static size_t GetReserveSize(const int H, const int W, const int N, const int D);
-  static curandStatus_t GenerateUniform(curandGenerator_t gen, T* data, size_t n);
+  static void GenerateUniform(T* data, size_t n);
 
   static device_vector<T> data_;
   static device_vector<char> wrspace_;
@@ -140,13 +135,23 @@ size_t LstmWrapper<double>::GetReserveSize(const int H, const int W, const int N
 }
 
 template <>
-curandStatus_t LstmWrapper<float>::GenerateUniform(curandGenerator_t gen, float* data, size_t n) {
-  return curandGenerateUniform(gen, data, n);
+void LstmWrapper<float>::GenerateUniform(float* data, size_t n) {
+  curandGenerator_t gen;
+  CHECK_CURAND(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
+  CHECK_CURAND(curandSetPseudoRandomGeneratorSeed(gen, 1234ULL));
+  CHECK_CURAND(curandGenerateUniform(gen, data, n));
+  CHECK_CUDA_CALL(cudaDeviceSynchronize());
+  CHECK_CURAND(curandDestroyGenerator(gen));
 }
 
 template <>
-curandStatus_t LstmWrapper<double>::GenerateUniform(curandGenerator_t gen, double* data, size_t n) {
-  return curandGenerateUniformDouble(gen, data, n);
+void LstmWrapper<double>::GenerateUniform(double* data, size_t n) {
+  curandGenerator_t gen;
+  CHECK_CURAND(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
+  CHECK_CURAND(curandSetPseudoRandomGeneratorSeed(gen, 1234ULL));
+  CHECK_CURAND(curandGenerateUniformDouble(gen, data, n));
+  CHECK_CUDA_CALL(cudaDeviceSynchronize());
+  CHECK_CURAND(curandDestroyGenerator(gen));
 }
 
 template <>
@@ -170,23 +175,13 @@ void LstmWrapper<double>::ForwardTraining() {
 }
 
 template <>
-void LstmWrapper<float>::BackwardGates() {
-  rnn2d_lstm_gpu_float_bw_workspace(H_, W_, N_, K_, D_, input_, nullptr, param_, output_, gradOutput_, wspace_, rspace_);
+void LstmWrapper<float>::BackwardData() {
+  rnn2d_lstm_gpu_float_bw_data(H_, W_, N_, K_, D_, input_, nullptr, param_, output_, gradOutput_, gradInput_, wspace_, rspace_);
 }
 
 template <>
-void LstmWrapper<double>::BackwardGates() {
-  rnn2d_lstm_gpu_double_bw_workspace(H_, W_, N_, K_, D_, input_, nullptr, param_, output_, gradOutput_, wspace_, rspace_);
-}
-
-template <>
-void LstmWrapper<float>::BackwardInput() {
-  rnn2d_lstm_gpu_float_bw_input(H_, W_, N_, K_, D_, param_, 1.0, gradInput_, wspace_, rspace_);
-}
-
-template <>
-void LstmWrapper<double>::BackwardInput() {
-  rnn2d_lstm_gpu_double_bw_input(H_, W_, N_, K_, D_, param_, 1.0, gradInput_, wspace_, rspace_);
+void LstmWrapper<double>::BackwardData() {
+  rnn2d_lstm_gpu_double_bw_data(H_, W_, N_, K_, D_, input_, nullptr, param_, output_, gradOutput_, gradInput_, wspace_, rspace_);
 }
 
 template <>
@@ -230,31 +225,16 @@ static void BM_fw_training(benchmark::State& state) {
 }
 
 template <typename T>
-static void BM_bw_gates(benchmark::State& state) {
+static void BM_bw_data(benchmark::State& state) {
   const int H = state.range(0);
   const int W = state.range(1);
   const int N = state.range(2);
   const int K = state.range(3);
   const int D = state.range(4);
   LstmWrapper<T> lstm(H, W, N, K, D);
-  lstm.BackwardGates();
+  lstm.BackwardData();
   while (state.KeepRunning()) {
-    lstm.BackwardGates();
-  }
-  state.SetItemsProcessed(state.iterations() * H * W * N * K * D);
-}
-
-template <typename T>
-static void BM_bw_input(benchmark::State& state) {
-  const int H = state.range(0);
-  const int W = state.range(1);
-  const int N = state.range(2);
-  const int K = state.range(3);
-  const int D = state.range(4);
-  LstmWrapper<T> lstm(H, W, N, K, D);
-  lstm.BackwardInput();
-  while (state.KeepRunning()) {
-    lstm.BackwardInput();
+    lstm.BackwardData();
   }
   state.SetItemsProcessed(state.iterations() * H * W * N * K * D);
 }
@@ -282,10 +262,9 @@ static void BM_bw_ALL(benchmark::State& state) {
   const int K = state.range(3);
   const int D = state.range(4);
   LstmWrapper<T> lstm(H, W, N, K, D);
-  lstm.BackwardGates();
+  lstm.BackwardData();
   while (state.KeepRunning()) {
-    lstm.BackwardGates();
-    lstm.BackwardInput();
+    lstm.BackwardData();
     lstm.BackwardParam();
   }
   state.SetItemsProcessed(state.iterations() * H * W * N * K * D);
@@ -294,32 +273,27 @@ static void BM_bw_ALL(benchmark::State& state) {
 
 #define INSTANTIATE_BENCHMARKS(TYPE)                                    \
   BENCHMARK_TEMPLATE(BM_fw_inference, TYPE)                             \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   BENCHMARK_TEMPLATE(BM_fw_training, TYPE)                              \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
-  BENCHMARK_TEMPLATE(BM_bw_gates, TYPE)                                 \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
-  ->Unit(benchmark::kMicrosecond)                                       \
-  ->UseRealTime();                                                      \
-                                                                        \
-  BENCHMARK_TEMPLATE(BM_bw_input, TYPE)                                 \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  BENCHMARK_TEMPLATE(BM_bw_data, TYPE)                                  \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   BENCHMARK_TEMPLATE(BM_bw_param, TYPE)                                 \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime();                                                      \
                                                                         \
   BENCHMARK_TEMPLATE(BM_bw_ALL, TYPE)                                   \
-  ->Args({DEFAULT_H, DEFAUL_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})        \
+  ->Args({DEFAULT_H, DEFAULT_W, DEFAULT_N, DEFAULT_K, DEFAULT_D})       \
   ->Unit(benchmark::kMicrosecond)                                       \
   ->UseRealTime()
 
