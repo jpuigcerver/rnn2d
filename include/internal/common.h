@@ -1,5 +1,5 @@
-#ifndef RNN2D_INTERNAL_COMMON_H
-#define RNN2D_INTERNAL_COMMON_H
+#ifndef RNN2D_INTERNAL_COMMON_H_
+#define RNN2D_INTERNAL_COMMON_H_
 
 #include <mutex>
 #include <string>
@@ -14,14 +14,22 @@
 namespace rnn2d {
 namespace internal {
 
-static const char* errorMsg = "";
+static const char* error_msg = "";
 
 #define RNN2D_SET_ERROR_MSG(m) do {             \
 static const std::string ms = (m);              \
-errorMsg = ms.c_str();                          \
+error_msg = ms.c_str();                         \
+} while(0)
+
+#define RNN2D_CHECK_AND_RETURN_ERROR(c, m, e) do { \
+  if (!(c)) {   \
+    static const std::string ms = (m); \
+    error_msg = ms.c_str(); \
+    return (e); \
+  } \
 } while(0)
 
 }  // namespace internal
 }  // namespace rnn2d
 
-#endif //RNN2D_INTERNAL_COMMON_H
+#endif //RNN2D_INTERNAL_COMMON_H_

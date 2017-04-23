@@ -10,6 +10,10 @@ namespace rnn2d {
 namespace internal {
 namespace cpu {
 
+template <typename T, class FI, class FO, class FG>
+rnn2dStatus_t Lstm
+
+
 template <typename T, int NG>
 class Lstm : public ::rnn2d::internal::Lstm<T, NG> {
  public:
