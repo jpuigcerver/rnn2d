@@ -1,29 +1,27 @@
-#ifndef RNN2D_ACTIVATION_H_
-#define RNN2D_ACTIVATION_H_
+#ifndef RNN2D_INTERNAL_ACTIVATION_H_
+#define RNN2D_INTERNAL_ACTIVATION_H_
 
-#ifndef __host__
-#define __host__
-#endif
-#ifndef __device__
-#define __device__
-#endif
+#include <rnn2d/internal/common.h>
+
+namespace rnn2d {
+namespace internal {
 
 template <typename T>
 class Linear {
  public:
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T f(const T& x) {
     return x;
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df(const T& x) {
     return 1;
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df2(const T& fx) {
     return 1;
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df(const T& x, const T& fx) {
     return 1;
   }
@@ -32,20 +30,20 @@ class Linear {
 template <typename T>
 class Sigmoid {
  public:
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T f(const T& x) {
     return static_cast<T>(1) / (static_cast<T>(1) + exp(-x));
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df(const T& x) {
     const T fx = f(x);
     return (1 - fx) * fx;
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df2(const T& fx) {
     return (1 - fx) * fx;
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df(const T& x, const T& fx) {
     return (1 - fx) * fx;
   }
@@ -54,20 +52,20 @@ class Sigmoid {
 template <typename T>
 class Tanh {
  public:
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T f(const T& x) {
     return tanh(x);
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df(const T& x) {
     const T fx = f(x);
     return 1 - fx * fx;
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df2(const T& fx) {
     return 1 - fx * fx;
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df(const T& x, const T& fx) {
     return 1 - fx * fx;
   }
@@ -76,22 +74,25 @@ class Tanh {
 template <typename T>
 class ReLU {
  public:
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T f(const T& x) {
     return (x > 0 ? x : 0);
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df(const T& x) {
     return (x > 0 ? 1 : 0);
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df2(const T& fx) {
     return (fx > 0 ? 1 : 0);
   }
-  __host__ __device__
+  CUDA_CALLABLE_MEMBER
   static inline T df(const T& x, const T& fx) {
     return (x > 0 ? 1 : 0);
   }
 };
 
-#endif  // RNN2D_ACTIVATION_H_
+}  // namespace internal
+}  // namespace rnn2d
+
+#endif // RNN2D_INTERNAL_ACTIVATION_H_

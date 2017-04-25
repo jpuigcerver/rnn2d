@@ -1,5 +1,9 @@
-#ifndef RNN2D_MATH_CPU_H_
-#define RNN2D_MATH_CPU_H_
+#ifndef RNN2D_INTERNAL_CPU_MATH_H_
+#define RNN2D_INTERNAL_CPU_MATH_H_
+
+namespace rnn2d {
+namespace internal {
+namespace cpu {
 
 // General matrix multiplication: C = alpha * A * B + beta * C
 // opA -> operation on A ('N': none, 'T': transpose, 'C': conjugate transpose)
@@ -16,12 +20,12 @@
 // C -> row-major matrix C
 // ldc -> size of the leading dimension (number of columns in a row) in C
 template <typename T>
-inline void gemm_cpu(
+inline void gemm(
     char opA, char opB, int m, int n, int k, T alpha,
     const T* A, int lda, const T* B, int ldb, T beta, T* C, int ldc);
 
 template<typename T>
-inline void gemv_cpu(
+inline void gemv(
     char op, int m, int n, T alpha, const T* A, int lda, const T* x, int incx,
     T beta, T* y, int incy);
 
@@ -32,18 +36,18 @@ inline void gemv_cpu(
 
 // Use BLAS fortran interface
 extern "C" {
-  void sgemm_(char*, char*, int*, int*, int*, float*, const float*,
-              int*, const float*, int*, float*, float*, int*);
-  void dgemm_(char*, char*, int*, int*, int*, double*, const double*,
-              int*, const double*, int*, double*, double*, int*);
-  void sgemv_(char*, int*, int*, float*, const float*, int*, const float*,
-              int*, float*, float*, int*);
-  void dgemv_(char*, int*, int*, double*, const double*, int*, const double*,
-              int*, double*, double*, int*);
+void sgemm_(char*, char*, int*, int*, int*, float*, const float*,
+            int*, const float*, int*, float*, float*, int*);
+void dgemm_(char*, char*, int*, int*, int*, double*, const double*,
+            int*, const double*, int*, double*, double*, int*);
+void sgemv_(char*, int*, int*, float*, const float*, int*, const float*,
+            int*, float*, float*, int*);
+void dgemv_(char*, int*, int*, double*, const double*, int*, const double*,
+            int*, double*, double*, int*);
 }
 
 template <>
-inline void gemm_cpu<float>(
+inline void gemm<float>(
     char opA, char opB, int m, int n, int k, float alpha,
     const float* A, int lda, const float* B, int ldb, float beta,
     float* C, int ldc) {
@@ -51,7 +55,7 @@ inline void gemm_cpu<float>(
 }
 
 template <>
-inline void gemm_cpu<double>(
+inline void gemm<double>(
     char opA, char opB, int m, int n, int k, double alpha,
     const double* A, int lda, const double* B, int ldb, double beta,
     double* C, int ldc) {
@@ -59,7 +63,7 @@ inline void gemm_cpu<double>(
 }
 
 template <>
-inline void gemv_cpu<float>(
+inline void gemv<float>(
     char op, int m, int n, float alpha, const float* A, int lda,
     const float* x, int incx, float beta, float* y, int incy) {
   op = op == 'N' ? 'T' : 'N';
@@ -67,11 +71,15 @@ inline void gemv_cpu<float>(
 }
 
 template <>
-inline void gemv_cpu<double>(
+inline void gemv<double>(
     char op, int m, int n, double alpha, const double* A, int lda,
     const double* x, int incx, double beta, double* y, int incy) {
   op = op == 'N' ? 'T' : 'N';
   dgemv_(&op, &n, &m, &alpha, A, &lda, x, &incx, &beta, y, &incy);
 }
 
-#endif  // RNN2D_MATH_CPU_H_
+}  // namespace cpu
+}  // namespace internal
+}  // namespace rnn2d
+
+#endif // RNN2D_INTERNAL_CPU_MATH_H_
