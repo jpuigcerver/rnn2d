@@ -15,16 +15,16 @@ class LayerInterface {
  public:
   virtual ~LayerInterface() {}
 
+  // Number of output channels.
+  virtual int GetD() const = 0;
+
+  // Number of images in the batch.
+  virtual int GetN() const = 0;
+
   // Check whether or not the class has backward methods.
   // If IsTrainable() returns true, a pointer/reference to the object can be
   // casted to LayerTraining, otherwise it can be casted to LayerInference.
   virtual bool IsTrainable() const = 0;
-
-  // Set the input max height, max width and batch size dimensions, the shape
-  // (height and width) of each image in the batch, and the pointer to the
-  // data.
-  virtual void SetInput(const int H, const int W, const int N,
-                        const int *shape, const T *input) = 0;
 
   // Set the pointer to the output array
   virtual void SetOutput(T *output) = 0;
@@ -32,7 +32,6 @@ class LayerInterface {
   // Perform forward pass.
   virtual rnn2dStatus_t Forward() = 0;
 };
-
 
 // Interface to a generic layer used in inference mode.
 //
@@ -44,7 +43,6 @@ class LayerInferenceInterface : public LayerInterface<T> {
  public:
   bool IsTrainable() const final { return false; }
 };
-
 
 // Interface to a generic layer used in training mode.
 //
@@ -64,15 +62,34 @@ class LayerTrainingInterface : public LayerInterface<T> {
   virtual rnn2dStatus_t BackwardParams() = 0;
 };
 
+// Interface to a 2D generic layer, templated with the data type
+// (e.g. T = float, T = double, etc).
+template <typename T>
+class Layer2dInterface : public LayerInterface<T> {
+ public:
+  virtual ~Layer2dInterface() {}
+
+  // Output height of the batch.
+  virtual int GetH() const = 0;
+
+  // Output width of the batch.
+  virtual int GetW() const = 0;
+
+  // Set the input max height, max width and batch size dimensions, the shape
+  // (height and width) of each image in the batch, and the pointer to the
+  // data.
+  virtual void SetInput(const int H, const int W, const int N,
+                        const int *shape, const T *input) = 0;
+};
+
 
 // Helper class useful to attach a layer interface to its implementation.
 template <class Impl, class Inter = LayerInterface<typename Impl::DataType>>
 class ImplToLayer : public Inter {
  public:
-  void SetInput(const int H, const int W, const int N, const int *shape,
-                const T *input) override {
-    impl_->SetInput(H, W, N, shape, input);
-  }
+  int GetD() const override { return impl_->GetD(); }
+
+  int GetN() const override { return impl_->GetN(); }
 
   void SetOutput(T *output) override { impl_->SetOutput(output); }
 
@@ -91,6 +108,19 @@ class ImplToLayer : public Inter {
 
  private:
   std::unique_ptr<Impl> impl_;
+};
+
+template <class Impl, class Inter = Layer2dInterface<typename Impl::DataType>>
+class ImplToLayer2d : public ImplToLayer<Impl, Inter> {
+ public:
+  int GetH() const override { return impl_->GetH(); }
+
+  int GetW() const override { return impl_->GetW(); }
+
+  void SetInput(const int H, const int W, const int N, const int *shape,
+                const T *input) override {
+    impl_->SetInput(H, W, N, shape, input);
+  }
 };
 
 }  // namespace rnn2d

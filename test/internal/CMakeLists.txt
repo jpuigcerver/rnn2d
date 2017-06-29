@@ -1,0 +1,5 @@
+ADD_EXECUTABLE(rnn2d_inference_impl_test rnn2d_inference_impl_test.cc)
+TARGET_LINK_LIBRARIES(rnn2d_inference_impl_test ${GMOCK_MAIN_LIBRARIES} ${COMMON_LIBRARIES})
+ADD_TEST(rnn2d_inference_impl_test rnn2d_inference_impl_test)
+
+ADD_SUBDIRECTORY(cpu)

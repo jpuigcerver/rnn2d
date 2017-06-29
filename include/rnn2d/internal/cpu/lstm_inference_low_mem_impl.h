@@ -5,7 +5,7 @@
 #ifndef RNN2D_INTERNAL_CPU_LSTM_INFERENCE_LOW_MEM_IMPL_H_
 #define RNN2D_INTERNAL_CPU_LSTM_INFERENCE_LOW_MEM_IMPL_H_
 
-#include <rnn2d/lstm.h>
+#include <rnn2d/rnn.h>
 
 #include <rnn2d/internal/activation.h>
 #include <rnn2d/internal/cpu/math.h>
@@ -53,12 +53,15 @@ class LstmInferenceCpuImpl {
       const int Tmax = std::min(t, H - 1);
       const int Tn   = (Tmax - Tmin) + 1;
 
-      #pragma omp parallel for
+      // Initialize cells with bias
+      #pragma omp parallel for collapse(5)
       for (int z = 0; z < 4; ++z)
-        for (int l = 0; l < std::min(H, W); ++l)
+        for (int l = 0; l < std::min(H_, W_); ++l)
           for (int n = 0; n < N_; ++n)
             for (int g = 0; g < 5; ++g)
-              for (int d = 0; d < D_; ++d)
+              for (int d = 0; d < D_; ++d) {
+                Qc(z, l, n, g, d) = B(z, g, d);
+              }
 
 
       // Matrix multiplications to compute the input to the gates from the
@@ -103,26 +106,35 @@ class LstmInferenceCpuImpl {
   void *wspace_;
   T *Qc_, *Qp_;
 
+  static inline
+  size_t Qoffset(const int z, const int l ,const int n, const int g, const int d) {
+    return z * std::min(H_, W_) * N_ * 5 * D_ +
+           l * N_ * 5 * D_ +
+           n * 5 * D_ +
+           g * D_ +
+           d;
+  }
+
   inline
   T* Qc(const int z, const int l, const int n, const int g, const int d) {
-    return Qc_ +
-        z * std::min(H_, W_) * N_ * 5 * D_ +
-        l * N_ * 5 * D_ +
-        n * 5 * D_ +
-        g * D_ +
-        d;
+    return Qc_ + Qoffset(z, l, n, g, d);
+
   }
 
   inline
   T* Qp(const int z, const int l, const int n, const int g, const int d) {
-    return Qp_ +
-        z * std::min(H_, W_) * N_ * 5 * D_ +
-        l * N_ * 5 * D_ +
-        n * 5 * D_ +
-        g * D_ +
-        d;
+    return Qp_ + Qoffset(z, l, n, g, d);
   }
 
+  inline
+  T& Qc(const int z, const int l, const int n, const int g, const int d) {
+    return *Qc(z, l, n, g, d);
+  }
+
+  inline
+  T& Qp(const int z, const int l, const int n, const int g, const int d) {
+    return *Qp(z, l, n, g, d);
+  }
 
   inline
   const T& B(const int z, const int g, const int d) const {

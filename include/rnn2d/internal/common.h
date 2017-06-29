@@ -17,16 +17,21 @@ static const char* error_msg = "";
 
 #define RNN2D_SET_ERROR_MSG(m) do {             \
 static const std::string ms = (m);              \
-error_msg = ms.c_str();                         \
+::rnn2d::internal::error_msg = ms.c_str();      \
 } while(0)
 
 #define RNN2D_CHECK_AND_RETURN_ERROR(c, m, e) do {  \
   if (!(c)) {                                       \
     static const std::string ms = (m);              \
-    error_msg = ms.c_str();                         \
+    ::rnn2d::internal::error_msg = ms.c_str();      \
     return (e);                                     \
   }                                                 \
 } while(0)
+
+#define RNN2D_RETURN_ERROR_IF_FAILED(e) \
+  if ((e) != RNN2D_STATUS_SUCCESS) return (e)
+
+#define RNN2D_GET_LAST_ERROR_MSG() ::rnn2d::internal::error_msg
 
 }  // namespace internal
 }  // namespace rnn2d

@@ -1,13 +1,19 @@
-#ifndef RNN2D_LSTM_H_
-#define RNN2D_LSTM_H_
+#ifndef RNN2D_RNN_H_
+#define RNN2D_RNN_H_
 
 #include <rnn2d/layer.h>
 
 namespace rnn2d {
 
 template <typename T>
-class LstmInterface : public LayerInterface<T> {
+class Rnn2dInterface : public Layer2dInterface<T> {
  public:
+  // Number of input channels.
+  virtual int GetK() const = 0;
+
+  // Pointer to the array containg the shape of each image in the batch.
+  virtual const int* GetShape() const = 0;
+
   // Return the number of parameters.
   virtual size_t GetNumParameters() const = 0;
 
@@ -26,13 +32,13 @@ class LstmInterface : public LayerInterface<T> {
 
 
 template <typename T>
-class LstmInferenceInterface :
-    public LstmInterface<T>, public LayerInferenceInterface<T> { };
+class Rnn2dInferenceInterface :
+    public Rnn2dInterface<T>, public LayerInferenceInterface<T> { };
 
 
 template <typename T>
-class LstmTrainingInterface :
-    public LstmInterface<T>, public LayerTrainingInterface<T> {
+class Rnn2dTrainingInterface :
+    public Rnn2dInterface<T>, public LayerTrainingInterface<T> {
  public:
   // Return the required size (in bytes) for the reserved array.
   virtual size_t GetSizeRSpace() const = 0;
@@ -48,9 +54,17 @@ class LstmTrainingInterface :
 
 
 template <class Impl,
-    class Inter = LstmInterface<typename Impl::DataType>>
-class ImplToLstm : public ImplToLayer<Impl, Inter> {
+    class Inter = Rnn2dInterface<typename Impl::DataType>>
+class ImplToRnn2d : public ImplToLayer2d<Impl, Inter> {
  public:
+  int GetK() const override {
+    GetImpl()->GetK();
+  }
+
+  const int* GetShape() const override {
+    GetImpl()->GetShape();
+  }
+
   size_t GetNumParameters() const override {
     return GetImpl()->GetNumParameters();
   }
@@ -70,13 +84,13 @@ class ImplToLstm : public ImplToLayer<Impl, Inter> {
 
 
 template <class Impl,
-    class Inter = LstmInferenceInterface<typename Impl::DataType>>
-class ImplToLstmInference : public ImplToLstm<Impl, Inter> { };
+    class Inter = Rnn2dInferenceInterface<typename Impl::DataType>>
+class ImplToRnn2dInference : public ImplToRnn2d<Impl, Inter> { };
 
 
 template <class Impl,
-    class Inter = LstmTrainingInterface<typename Impl::DataType>>
-class ImplToLstmTraining : public ImplToLstm<Impl, Inter> {
+    class Inter = Rnn2dTrainingInterface<typename Impl::DataType>>
+class ImplToRnn2dTraining : public ImplToRnn2d<Impl, Inter> {
  public:
   void SetGradInput(T *input_grad) override {
     GetMutableImpl()->SetGradInput(input_grad);
@@ -109,4 +123,4 @@ class ImplToLstmTraining : public ImplToLstm<Impl, Inter> {
 
 }  // namespace rnn2d
 
-#endif //RNN2D_LSTM_H_
+#endif //RNN2D_RNN_H_

@@ -39,4 +39,6 @@ IF(GTEST_FOUND AND GMOCK_FOUND)
       ${COMMON_LIBRARIES})
     ADD_TEST(tile_gpu_test tile_gpu_test)
   ENDIF()
+
+  ADD_SUBDIRECTORY(internal)
 ENDIF()
