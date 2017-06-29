@@ -3,10 +3,7 @@ TARGET_LINK_LIBRARIES(rnn2d_simple_cell_test ${GMOCK_MAIN_LIBRARIES} ${COMMON_LI
 ADD_TEST(rnn2d_simple_cell_test rnn2d_simple_cell_test)
 
 
-ADD_EXECUTABLE(rnn2d_inference_standard_impl_test rnn2d_inference_standard_impl_test.cc)
-TARGET_LINK_LIBRARIES(rnn2d_inference_standard_impl_test ${GMOCK_MAIN_LIBRARIES} ${COMMON_LIBRARIES})
-ADD_TEST(rnn2d_inference_standard_impl_test rnn2d_inference_standard_impl_test)
+ADD_EXECUTABLE(lstm2d_inference_high_mem_impl_test lstm2d_inference_high_mem_impl_test.cc)
+TARGET_LINK_LIBRARIES(lstm2d_inference_high_mem_impl_test ${GMOCK_MAIN_LIBRARIES} ${COMMON_LIBRARIES} ${BLAS_LIBRARIES})
+ADD_TEST(lstm2d_inference_high_mem_impl_test rnn2d_inference_standard_impl_test)
 
-ADD_EXECUTABLE(lstm2d_standard_test lstm2d_standard_test.cc)
-TARGET_LINK_LIBRARIES(lstm2d_standard_test ${GMOCK_MAIN_LIBRARIES} ${COMMON_LIBRARIES} ${BLAS_LIBRARIES})
-ADD_TEST(lstm2d_standard_test lstm2d_standard_test)

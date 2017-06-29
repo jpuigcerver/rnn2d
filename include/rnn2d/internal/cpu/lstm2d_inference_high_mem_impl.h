@@ -1,5 +1,5 @@
-#ifndef RNN2D_INTERNAL_CPU_RNN2D_INFERENCE_STANDARD_IMPL_H_
-#define RNN2D_INTERNAL_CPU_RNN2D_INFERENCE_STANDARD_IMPL_H_
+#ifndef RNN2D_INTERNAL_CPU_LSTM2D_INFERENCE_HIGH_MEM_IMPL_H_
+#define RNN2D_INTERNAL_CPU_LSTM2D_INFERENCE_HIGH_MEM_IMPL_H_
 
 #include <rnn2d/internal/activation.h>
 #include <rnn2d/internal/rnn2d_inference_impl.h>
@@ -9,31 +9,35 @@ namespace rnn2d {
 namespace internal {
 namespace cpu {
 
-template <typename T, class Cell>
-class Rnn2dInferenceStandardImpl :
+template <typename T, class C>
+class Lstm2dInferenceHighMemImpl :
     public ::rnn2d::internal::Rnn2dInferenceImpl<T> {
  public:
+  using Rnn2dInferenceImpl<T>::DataType;
+  typedef C Cell;
+
   using Rnn2dInferenceImpl<T>::GetX;
   using Rnn2dInferenceImpl<T>::GetY;
 
+
   CUDA_CALLABLE_MEMBER
-  Rnn2dInferenceStandardImpl(const int K, const int D) :
+  Lstm2dInferenceHighMemImpl(const int K, const int D) :
       Rnn2dInferenceImpl<T>(K, D), G_(cell_.NumGates()) {}
 
   CUDA_CALLABLE_MEMBER
-  Rnn2dInferenceStandardImpl(const int K, const int D, const Cell& cell) :
+  Lstm2dInferenceHighMemImpl(const int K, const int D, const Cell& cell) :
       Rnn2dInferenceImpl<T>(K, D), cell_(cell), G_(cell_.NumGates()) {}
 
   CUDA_CALLABLE_MEMBER
-  Rnn2dInferenceStandardImpl(const int K, const int D, Cell&& cell) :
+  Lstm2dInferenceHighMemImpl(const int K, const int D, Cell&& cell) :
       Rnn2dInferenceImpl<T>(K, D), cell_(std::move(cell)), G_(cell_.NumGates()) {}
 
   CUDA_CALLABLE_MEMBER
-  Rnn2dInferenceStandardImpl(const Rnn2dInferenceStandardImpl& impl) :
+  Lstm2dInferenceHighMemImpl(const Lstm2dInferenceHighMemImpl& impl) :
     Rnn2dInferenceImpl<T>(impl), cell_(impl.cell_), G_(impl.G_) {}
 
   CUDA_CALLABLE_MEMBER
-  Rnn2dInferenceStandardImpl(Rnn2dInferenceStandardImpl&& impl) :
+  Lstm2dInferenceHighMemImpl(Lstm2dInferenceHighMemImpl&& impl) :
       Rnn2dInferenceImpl<T>(std::move(impl)), cell_(std::move(impl.cell_)), G_(impl.G_) {}
 
   CUDA_CALLABLE_MEMBER
@@ -287,4 +291,4 @@ class Rnn2dInferenceStandardImpl :
 }  // namespace internal
 }  // namespace rnn2d
 
-#endif  // RNN2D_INTERNAL_CPU_RNN2D_INFERENCE_STANDARD_IMPL_H_
+#endif  // RNN2D_INTERNAL_CPU_LSTM2D_INFERENCE_HIGH_MEM_IMPL_H_

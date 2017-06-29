@@ -12,6 +12,8 @@ namespace internal {
 template <typename T>
 class Rnn2dInferenceImpl {
  public:
+  typedef T DataType;
+
   CUDA_CALLABLE_MEMBER
   Rnn2dInferenceImpl(const int K, const int D) : K_(K), D_(D) {}
 

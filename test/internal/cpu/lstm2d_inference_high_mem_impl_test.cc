@@ -1,12 +1,11 @@
 #include <gmock/gmock.h>
 
-#include <rnn2d/internal/cpu/rnn2d_inference_standard_impl.h>
+#include <rnn2d/internal/cpu/lstm2d_inference_high_mem_impl.h>
 #include <rnn2d/internal/cpu/lstm2d_cell.h>
 
 using ::rnn2d::internal::Sigmoid;
 using ::rnn2d::internal::cpu::Lstm2dCell;
-using ::rnn2d::internal::cpu::Rnn2dInferenceStandardImpl;
-
+using ::rnn2d::internal::cpu::Lstm2dInferenceHighMemImpl;
 
 using ::testing::Each;
 
@@ -19,7 +18,7 @@ TYPED_TEST_CASE(Lstm2dStandardCpuTest, MyTypes);
 TYPED_TEST(Lstm2dStandardCpuTest, ForwardAllWeightsZero) {
   typedef TypeParam T;
   constexpr int H = 2, W = 3, N = 1, K = 2, D = 2;
-  Rnn2dInferenceStandardImpl<T, Lstm2dCell<T>> lstm(K, D);
+  Lstm2dInferenceHighMemImpl<T, Lstm2dCell<T>> lstm(K, D);
   std::vector<T> input(H * W * N * K, 1);
   std::vector<T> output(H * W * N * 4 * D, 1);
   std::vector<T> params(lstm.GetNumParameters(), 0);
@@ -37,7 +36,7 @@ TYPED_TEST(Lstm2dStandardCpuTest, ForwardAllWeightsZero) {
 TYPED_TEST(Lstm2dStandardCpuTest, ForwardBias) {
   typedef TypeParam T;
   constexpr int H = 2, W = 3, N = 1, K = 2, D = 2;
-  Rnn2dInferenceStandardImpl<T, Lstm2dCell<T>> lstm(K, D);
+  Lstm2dInferenceHighMemImpl<T, Lstm2dCell<T>> lstm(K, D);
   std::vector<T> input(H * W * N * K, 1);       // Initialized to all ones
   std::vector<T> output(H * W * N * 4 * D, 1);  // Initialized to all ones
   std::vector<T> params(lstm.GetNumParameters(), 0);
@@ -84,7 +83,7 @@ TYPED_TEST(Lstm2dStandardCpuTest, ForwardBias) {
 TYPED_TEST(Lstm2dStandardCpuTest, ForwardInputWeights) {
   typedef TypeParam T;
   constexpr int H = 2, W = 3, N = 1, K = 2, D = 2;
-  Rnn2dInferenceStandardImpl<T, Lstm2dCell<T>> lstm(K, D);
+  Lstm2dInferenceHighMemImpl<T, Lstm2dCell<T>> lstm(K, D);
   std::vector<T> input(H * W * N * K, 1);       // Initialized to all ones
   std::vector<T> output(H * W * N * 4 * D, 1);  // Initialized to all ones
   std::vector<T> params(lstm.GetNumParameters(), 0);
@@ -146,7 +145,7 @@ TYPED_TEST(Lstm2dStandardCpuTest, ForwardInputWeights) {
 TYPED_TEST(Lstm2dStandardCpuTest, ForwardRecurrentXWeights) {
   typedef TypeParam T;
   constexpr int H = 2, W = 3, N = 1, K = 2, D = 2;
-  Rnn2dInferenceStandardImpl<T, Lstm2dCell<T>> lstm(K, D);
+  Lstm2dInferenceHighMemImpl<T, Lstm2dCell<T>> lstm(K, D);
   std::vector<T> input(H * W * N * K, 1);       // Initialized to all ones
   std::vector<T> output(H * W * N * 4 * D, 1);  // Initialized to all ones
   std::vector<T> params(lstm.GetNumParameters(), 0);
@@ -213,7 +212,7 @@ TYPED_TEST(Lstm2dStandardCpuTest, ForwardRecurrentXWeights) {
 TYPED_TEST(Lstm2dStandardCpuTest, ForwardRecurrentYWeights) {
   typedef TypeParam T;
   constexpr int H = 2, W = 3, N = 1, K = 2, D = 2;
-  Rnn2dInferenceStandardImpl<T, Lstm2dCell<T>> lstm(K, D);
+  Lstm2dInferenceHighMemImpl<T, Lstm2dCell<T>> lstm(K, D);
   std::vector<T> input(H * W * N * K, 1);       // Initialized to all ones
   std::vector<T> output(H * W * N * 4 * D, 1);  // Initialized to all ones
   std::vector<T> params(lstm.GetNumParameters(), 0);
