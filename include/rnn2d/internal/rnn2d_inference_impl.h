@@ -3,8 +3,8 @@
 
 #include <memory>
 
-#include <rnn2d/rnn2d.h>
-#include <rnn2d/internal/common.h>
+#include <rnn2d/basic_types.h>
+#include <rnn2d/common.h>
 
 namespace rnn2d {
 namespace internal {

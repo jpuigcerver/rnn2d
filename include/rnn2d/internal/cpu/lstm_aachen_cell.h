@@ -1,7 +1,7 @@
 #ifndef RNN2D_INTERNAL_CPU_LSTM_STANDARD_CELL_IMPL_H_
 #define RNN2D_INTERNAL_CPU_LSTM_STANDARD_CELL_IMPL_H_
 
-#include <rnn2d/internal/activation.h>
+#include <include/rnn2d/activations.h>
 
 namespace rnn2d {
 namespace internal {

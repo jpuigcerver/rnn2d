@@ -1,7 +1,7 @@
-#ifndef RNN2D_INTERNAL_ACTIVATION_H_
-#define RNN2D_INTERNAL_ACTIVATION_H_
+#ifndef RNN2D_INTERNAL_ACTIVATIONS_H_
+#define RNN2D_INTERNAL_ACTIVATIONS_H_
 
-#include <rnn2d/internal/common.h>
+#include <include/rnn2d/common.h>
 
 namespace rnn2d {
 namespace internal {
@@ -95,4 +95,4 @@ class ReLU {
 }  // namespace internal
 }  // namespace rnn2d
 
-#endif // RNN2D_INTERNAL_ACTIVATION_H_
+#endif // RNN2D_INTERNAL_ACTIVATIONS_H_

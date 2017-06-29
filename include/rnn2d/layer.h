@@ -1,7 +1,7 @@
 #ifndef RNN2D_LAYER_H_
 #define RNN2D_LAYER_H_
 
-#include <rnn2d/rnn2d.h>
+#include <rnn2d/basic_types.h>
 
 namespace rnnd2 {
 

@@ -1,5 +1,5 @@
-#ifndef RNN2D_RNN2D_H
-#define RNN2D_RNN2D_H
+#ifndef RNN2D_BASIC_TYPES_H_
+#define RNN2D_BASIC_TYPES_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,4 +26,4 @@ typedef enum {
 }
 #endif
 
-#endif //RNN2D_RNN2D_H
+#endif  // RNN2D_BASIC_TYPES_H_

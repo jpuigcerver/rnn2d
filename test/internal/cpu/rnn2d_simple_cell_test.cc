@@ -2,7 +2,7 @@
 #include <gmock/gmock.h>
 
 #include <rnn2d/internal/cpu/rnn2d_simple_cell.h>
-
+/*
 namespace rnn2d {
 namespace internal {
 namespace cpu {
@@ -54,3 +54,5 @@ TEST(Rnn2dSimpleCell, ForwardNoShape) {
   cell.Forward(&layer, 0);
 
 }
+
+*/

@@ -5,9 +5,8 @@
 #ifndef RNN2D_INTERNAL_CPU_LSTM_INFERENCE_LOW_MEM_IMPL_H_
 #define RNN2D_INTERNAL_CPU_LSTM_INFERENCE_LOW_MEM_IMPL_H_
 
-#include <rnn2d/rnn.h>
-
-#include <rnn2d/internal/activation.h>
+#include <rnn2d/activations.h>
+#include <rnn2d/basic_types.h>
 #include <rnn2d/internal/cpu/math.h>
 
 namespace rnn2d {
