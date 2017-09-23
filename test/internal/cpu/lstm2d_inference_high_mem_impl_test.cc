@@ -1,8 +1,8 @@
 #include <gmock/gmock.h>
 
-#include "test/internal/cpu/lstm2d_standard_cell_inference.h"
+#include "test/internal/cpu/lstm2d_cell_standard_inference.h"
 
-#include <rnn2d/internal/cpu/lstm2d_cell.h>
+#include <rnn2d/internal/cpu/lstm2d_cell_standard.h>
 #include <include/rnn2d/internal/cpu/lstm2d_inference_high_mem_impl.h>
 
 

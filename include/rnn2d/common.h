@@ -28,6 +28,16 @@ static const std::string ms = (m);              \
   }                                                 \
 } while(0)
 
+#define RNN2D_CHECK_CUDA_AND_RETURN_ERROR(cuda_status, rnn2d_status, msg_pre) \
+do {                                                                          \
+  if (cuda_status != cudaSuccess) {                                           \
+    static const std::string ms =                                             \
+      std::string(msg_pre) + std::string(cudaGetErrorString(cuda_status));    \
+    ::rnn2d::internal::error_msg = ms.c_str();                                \
+    return (e);                                                               \
+  }                                                                           \
+} while(0)
+
 #define RNN2D_RETURN_ERROR_IF_FAILED(e) \
   if ((e) != RNN2D_STATUS_SUCCESS) return (e)
 

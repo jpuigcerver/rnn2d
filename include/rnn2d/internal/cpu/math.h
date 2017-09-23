@@ -82,4 +82,4 @@ inline void gemv<double>(
 }  // namespace internal
 }  // namespace rnn2d
 
-#endif // RNN2D_INTERNAL_CPU_MATH_H_
+#endif  // RNN2D_INTERNAL_GPU_MATH_H_
