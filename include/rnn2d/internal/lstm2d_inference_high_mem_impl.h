@@ -10,7 +10,7 @@ template<typename T, class C>
 class Lstm2dInferenceHighMemImpl :
     public ::rnn2d::internal::Rnn2dInferenceImpl<T> {
  public:
-  using Rnn2dInferenceImpl<T>::DataType;
+  using typename Rnn2dInferenceImpl<T>::DataType;
   typedef C Cell;
 
   CUDA_CALLABLE_MEMBER

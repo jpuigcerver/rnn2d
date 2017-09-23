@@ -54,7 +54,7 @@ TEST(Rnn2dInferenceImplTest, SetInputEqualSizes) {
   EXPECT_EQ(W, impl.GetW(N - 1));
 }
 
-TEST(Rnn2dInferenceImpl, SetInputDifferentSizes) {
+TEST(Rnn2dInferenceImplTest, SetInputDifferentSizes) {
   const int K = 3, D = 25;
   Rnn2dInferenceImplFake<float> impl(K, D);
   const int H = 10, W = 20, N = 30;

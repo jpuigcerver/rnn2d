@@ -6,6 +6,8 @@
 #include <rnn2d/activations.h>
 #include <rnn2d/basic_types.h>
 
+#include <cmath>
+
 using ::rnn2d::internal::Sigmoid;
 
 
