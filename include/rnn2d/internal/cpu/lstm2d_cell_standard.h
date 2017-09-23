@@ -2,7 +2,7 @@
 #define RNN2D_INTERNAL_CPU_LSTM2D_CELL_H_
 
 #include <rnn2d/basic_types.h>
-#include <include/rnn2d/activations.h>
+#include <rnn2d/activations.h>
 
 namespace rnn2d {
 namespace internal {
@@ -31,7 +31,7 @@ class Lstm2dCell {
     const int L = std::min(H, W);
 
     // Compute cell and output values
-    //#pragma omp parallel for collapse(4)
+    #pragma omp parallel for collapse(4)
     for (int z = 0; z < 4; ++z) {
       for (int e = 0; e < L; ++e) {
         for (int n = 0; n < N; ++n) {
@@ -53,21 +53,6 @@ class Lstm2dCell {
                                ? *lstm->Q(z, y, xp, n, 4, d) : 0;
                 const T C_00 = fGi * fA + fGy * C_10 + fGx * C_01;  // state
                 const T O_00 = fGo * fo_.f(C_00);                   // output
-                if (fGi != fGi) {
-                  std::cerr << z << ", " << y << ", " << x << ", " << n << ", " << d << " -> fGi = f(" << *lstm->Q(z, y, x, n, 0, d) << ")" << std::endl;
-                }
-                if (fGy != fGy) {
-                  std::cerr << z << ", " << y << ", " << x << ", " << n << ", " << d << " -> fGy = f(" << *lstm->Q(z, y, x, n, 1, d) << ")" << std::endl;
-                }
-                if (fGx != fGx) {
-                  std::cerr << z << ", " << y << ", " << x << ", " << n << ", " << d << " -> fGx = f(" << *lstm->Q(z, y, x, n, 2, d) << ")" << std::endl;
-                }
-                if (fGo != fGo) {
-                  std::cerr << z << ", " << y << ", " << x << ", " << n << ", " << d << " -> fGo = f(" << *lstm->Q(z, y, x, n, 3, d) << ")" << std::endl;
-                }
-                if (fA != fA) {
-                  std::cerr << z << ", " << y << ", " << x << ", " << n << ", " << d << " -> fA = f(" << *lstm->Q(z, y, x, n, 4, d) << ")" << std::endl;
-                }
                 *lstm->Q(z, y, x, n, 0, d) = fGi;
                 *lstm->Q(z, y, x, n, 1, d) = fGy;
                 *lstm->Q(z, y, x, n, 2, d) = fGx;
